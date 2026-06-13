@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSendTransaction } from 'wagmi';
@@ -38,6 +38,12 @@ interface PaymentResult {
     amount: string;
     explorerUrl: string;
   };
+}
+
+interface HistoryEntry {
+  humanSummary: string;
+  timestamp: string;
+  hashscanUrl: string;
 }
 
 interface ParsedPreview {
@@ -101,6 +107,21 @@ export default function Home() {
   const [unknownName, setUnknownName]   = useState<string | null>(null);
   const [manualAddress, setManualAddress] = useState('');
   const [copiedKey, setCopiedKey]       = useState<string | null>(null);
+  const [finalityMs, setFinalityMs]     = useState<number | null>(null);
+  const [history, setHistory]           = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    // Load ?intent= param from URL
+    const params = new URLSearchParams(window.location.search);
+    const urlIntent = params.get('intent');
+    if (urlIntent) setIntent(decodeURIComponent(urlIntent));
+
+    // Load persisted history from localStorage
+    try {
+      const stored = localStorage.getItem('flowpay_history');
+      if (stored) setHistory(JSON.parse(stored) as HistoryEntry[]);
+    } catch {}
+  }, []);
 
   async function runPreview(intentText: string) {
     setStage('previewing');
@@ -151,7 +172,9 @@ export default function Home() {
     setResult(null);
     setError(null);
     setVisibleCards([]);
+    setFinalityMs(null);
 
+    const startTime = performance.now();
     const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
     // Watchdog: reset on each SSE event. If 25s pass without progress → abort.
@@ -193,8 +216,21 @@ export default function Home() {
           if (event.type === 'step' && event.index !== undefined) {
             setStepIndex(event.index);
           } else if (event.type === 'done' && event.data) {
+            const elapsed = parseFloat(((performance.now() - startTime) / 1000).toFixed(1));
+            setFinalityMs(elapsed);
             setResult(event.data);
             setStage('done');
+            // Persist to localStorage history (max 3)
+            const entry: HistoryEntry = {
+              humanSummary: event.data.parsed.humanSummary,
+              timestamp: new Date().toISOString(),
+              hashscanUrl: event.data.hcs.explorerUrl,
+            };
+            setHistory(prev => {
+              const updated = [entry, ...prev].slice(0, 3);
+              try { localStorage.setItem('flowpay_history', JSON.stringify(updated)); } catch {}
+              return updated;
+            });
             for (let i = 0; i < 4; i++) {
               await wait(110);
               setVisibleCards(prev => [...prev, i]);
@@ -237,6 +273,7 @@ export default function Home() {
     setUnknownName(null);
     setManualAddress('');
     setCopiedKey(null);
+    setFinalityMs(null);
   }
 
   const isExecuting = stage === 'executing';
@@ -624,9 +661,21 @@ export default function Home() {
                 idx: 3, label: 'Settlement', service: 'Hedera Testnet', accent: '#10b981',
                 body: (
                   <>
-                    <p style={{ fontSize: 14, fontWeight: 500, color: '#fafafa', marginBottom: 8 }}>
-                      {result.payment.amount} · &lt;3 seconds · $0.001
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <p style={{ fontSize: 14, fontWeight: 500, color: '#fafafa', margin: 0 }}>
+                        {result.payment.amount} · $0.001
+                      </p>
+                      {finalityMs !== null && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)',
+                          borderRadius: 980, padding: '3px 10px',
+                          fontSize: 11, fontWeight: 700, color: '#10b981', letterSpacing: '0.2px',
+                        }}>
+                          ⚡ Settled in {finalityMs}s
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10 }}>
                       <p style={{ fontSize: 11, fontFamily: 'var(--font-geist-mono,monospace)', color: '#71717a', wordBreak: 'break-all', lineHeight: 1.6, margin: 0, flex: 1 }}>
                         {result.payment.transactionId}
@@ -665,6 +714,47 @@ export default function Home() {
         )}
 
         </div>{/* end dynamic content area */}
+
+        {/* ── RECENT PAYMENTS HISTORY ── */}
+        {history.length > 0 && stage === 'idle' && (
+          <div style={{ marginTop: 40 }} className="animate-fade-in">
+            <p style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
+              Recent Automated Payments
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {history.map((entry, i) => (
+                <a
+                  key={i}
+                  href={entry.hashscanUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 14px', borderRadius: 8,
+                    border: '1px solid #18181b', background: '#09090b',
+                    transition: 'border-color 0.15s',
+                    cursor: 'pointer',
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#27272a')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#18181b')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, color: '#71717a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.humanSummary}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 10, color: '#3f3f46', flexShrink: 0, marginLeft: 12, fontFamily: 'var(--font-geist-mono,monospace)' }}>
+                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} →
+                    </span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── HOW IT WORKS ── */}
