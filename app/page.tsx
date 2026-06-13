@@ -49,6 +49,9 @@ interface ParsedPreview {
   senderName: string | null;
   recipientName: string | null;
   hederaRecipient: string | null;
+  recipientAddress: string;
+  warnings?: string[];
+  resolvedAddressLabel?: string | null;
 }
 
 const PIPELINE = ['Input', 'Gemini', 'LI.FI', 'Hedera'];
@@ -386,7 +389,7 @@ export default function Home() {
             <p style={{ fontSize: 15, fontWeight: 600, color: '#fafafa', marginBottom: 14, lineHeight: 1.45 }}>
               {preview.humanSummary}
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 18 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: preview.warnings?.length ? 14 : 18 }}>
               {[
                 `${preview.amount} ${preview.toToken}`,
                 preview.fromToken !== preview.toToken ? `via ${preview.fromToken}` : null,
@@ -397,6 +400,20 @@ export default function Home() {
                 'Fee: $0.001',
               ].filter(Boolean).map(t => <Chip key={t!}>{t}</Chip>)}
             </div>
+
+            {/* AI assumption warnings */}
+            {preview.warnings && preview.warnings.length > 0 && (
+              <div style={{
+                background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)',
+                borderRadius: 10, padding: '10px 14px', marginBottom: 16,
+              }}>
+                {preview.warnings.map((w, i) => (
+                  <p key={i} style={{ fontSize: 11, color: '#ca8a04', lineHeight: 1.5 }}>
+                    ⚠ {w}
+                  </p>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={() => setStage('idle')}
@@ -583,6 +600,9 @@ export default function Home() {
           <Link href="/docs" className="nav-link" style={{ fontSize: 12 }}>Docs</Link>
           <span style={{ margin: '0 12px', color: '#27272a' }}>·</span>
           <a href="https://hashscan.io/testnet/topic/0.0.9217982" target="_blank" rel="noopener noreferrer" className="nav-link" style={{ fontSize: 12 }}>Hashscan</a>
+        </p>
+        <p style={{ fontSize: 10, color: '#27272a', marginTop: 10 }}>
+          Executed via FlowPay Relayer Account (Hedera Testnet) · LI.FI Composer Staging · Name resolution: demo registry
         </p>
       </footer>
 

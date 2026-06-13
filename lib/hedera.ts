@@ -57,12 +57,16 @@ export interface PaymentResult {
   explorerUrl: string;
 }
 
-export async function recordPaymentOnChain(data: object): Promise<HCSResult> {
+export async function recordPaymentOnChain(
+  data: object,
+  status: 'SUCCESS' | 'ROUTING_FAILED' | 'PAYMENT_FAILED' = 'SUCCESS',
+): Promise<HCSResult> {
   const client = getClient();
   const topicId = await getTopicId();
 
   const message = JSON.stringify({
     ...data,
+    status,
     timestamp: new Date().toISOString(),
     app: 'FlowPay',
   });
