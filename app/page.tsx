@@ -98,17 +98,18 @@ export default function Home() {
   const [result, setResult]             = useState<PaymentResult | null>(null);
   const [error, setError]               = useState<string | null>(null);
   const [visibleCards, setVisibleCards] = useState<number[]>([]);
+  const [unknownName, setUnknownName]   = useState<string | null>(null);
+  const [manualAddress, setManualAddress] = useState('');
+  const [copiedKey, setCopiedKey]       = useState<string | null>(null);
 
-  async function handlePreview(e: React.FormEvent) {
-    e.preventDefault();
-    if (!intent.trim() || loading) return;
+  async function runPreview(intentText: string) {
     setStage('previewing');
     setError(null);
     try {
       const res = await fetch('/api/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent }),
+        body: JSON.stringify({ intent: intentText }),
       });
       const data = await res.json();
       if (data.error) { setError(data.error); setStage('idle'); return; }
@@ -118,6 +119,29 @@ export default function Home() {
       setError('Network error. Please try again.');
       setStage('idle');
     }
+  }
+
+  async function handlePreview(e: React.FormEvent) {
+    e.preventDefault();
+    if (!intent.trim() || loading) return;
+    await runPreview(intent);
+  }
+
+  async function handleRetryWithAddress() {
+    if (!manualAddress.trim() || !unknownName) return;
+    const augmented = `${intent.trim()} (${unknownName}: ${manualAddress.trim()})`;
+    setIntent(augmented);
+    setUnknownName(null);
+    setManualAddress('');
+    setError(null);
+    await runPreview(augmented);
+  }
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    }).catch(() => {});
   }
 
   async function handleExecute() {
@@ -163,7 +187,7 @@ export default function Home() {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          let event: { type: string; index?: number; error?: string; data?: PaymentResult };
+          let event: { type: string; index?: number; error?: string; message?: string; data?: PaymentResult };
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (event.type === 'step' && event.index !== undefined) {
@@ -176,7 +200,13 @@ export default function Home() {
               setVisibleCards(prev => [...prev, i]);
             }
           } else if (event.type === 'error') {
-            setError(event.error ?? 'Unknown error');
+            const displayMsg = event.message ?? event.error ?? 'Unknown error';
+            const nameMatch = displayMsg.match(/"([^"]+)" is not in the FlowPay registry/);
+            if (nameMatch) {
+              setUnknownName(nameMatch[1]);
+              setManualAddress('');
+            }
+            setError(displayMsg);
             setStage('idle');
           }
         }
@@ -204,6 +234,9 @@ export default function Home() {
     setVisibleCards([]);
     setStepIndex(-1);
     setStage('idle');
+    setUnknownName(null);
+    setManualAddress('');
+    setCopiedKey(null);
   }
 
   const isExecuting = stage === 'executing';
@@ -329,6 +362,39 @@ export default function Home() {
             onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handlePreview(e as unknown as React.FormEvent); }}
           />
 
+          {/* Emergency address input — shown when a name is unresolved */}
+          {unknownName && stage === 'idle' && (
+            <div style={{ padding: '14px 22px 0', borderTop: '1px solid #18181b' }}>
+              <p style={{ fontSize: 12, color: '#a1a1aa', marginBottom: 10, lineHeight: 1.5 }}>
+                We couldn&apos;t find <strong style={{ color: '#fafafa' }}>{unknownName}</strong>.
+                Paste their <span style={{ fontFamily: 'var(--font-geist-mono,monospace)', fontSize: 11 }}>0x…</span> or{' '}
+                <span style={{ fontFamily: 'var(--font-geist-mono,monospace)', fontSize: 11 }}>0.0.X</span> address here to complete the intent.
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <input
+                  type="text"
+                  value={manualAddress}
+                  onChange={e => setManualAddress(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleRetryWithAddress(); }}
+                  placeholder={`${unknownName}'s 0x... or 0.0.X address`}
+                  style={{
+                    flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid #27272a',
+                    borderRadius: 8, padding: '9px 14px', fontSize: 13, color: '#fafafa',
+                    fontFamily: 'var(--font-geist-mono,monospace)', outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={handleRetryWithAddress}
+                  disabled={!manualAddress.trim()}
+                  className="btn-primary"
+                  style={{ padding: '9px 18px', fontSize: 13, borderRadius: 8, flexShrink: 0, opacity: manualAddress.trim() ? 1 : 0.4 }}
+                >
+                  Retry →
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Shimmer track — synced to execution stage */}
           <div style={{ height: 2, background: '#18181b', position: 'relative', overflow: 'hidden' }}>
             {isExecuting && (
@@ -370,6 +436,9 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Dynamic content area — min-height prevents footer jump between states */}
+        <div style={{ minHeight: 460 }}>
 
         {/* Step label during execution */}
         {isExecuting && stepIndex >= 0 && (
@@ -534,11 +603,15 @@ export default function Home() {
                 body: (
                   <>
                     <p style={{ fontSize: 14, fontWeight: 500, color: '#fafafa', marginBottom: 8 }}>Recorded · immutable · public</p>
-                    <p style={{ fontSize: 12, color: '#71717a', marginBottom: 10, lineHeight: 1.5 }}>
-                      Topic{' '}
+                    <p style={{ fontSize: 12, color: '#71717a', marginBottom: 10, lineHeight: 1.5, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <span>Topic</span>
                       <span style={{ color: '#e4e4e7', fontFamily: 'var(--font-geist-mono,monospace)', fontSize: 11 }}>{result.hcs.topicId}</span>
-                      <span style={{ margin: '0 8px', color: '#27272a' }}>·</span>
-                      Entry <span style={{ color: '#fafafa', fontWeight: 600 }}>#{result.hcs.sequenceNumber}</span>
+                      <button onClick={() => copyToClipboard(result.hcs.topicId, 'hcs-topic')} title="Copy topic ID"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', fontSize: 11, color: copiedKey === 'hcs-topic' ? '#10b981' : '#52525b', transition: 'color 0.2s', fontFamily: 'inherit' }}>
+                        {copiedKey === 'hcs-topic' ? '✓' : '⧉'}
+                      </button>
+                      <span style={{ color: '#27272a' }}>·</span>
+                      <span>Entry <strong style={{ color: '#fafafa' }}>#{result.hcs.sequenceNumber}</strong></span>
                     </p>
                     <a href={result.hcs.explorerUrl} target="_blank" rel="noopener noreferrer"
                       style={{ fontSize: 13, color: '#e4e4e7', textDecoration: 'none', fontWeight: 500 }}>
@@ -554,9 +627,15 @@ export default function Home() {
                     <p style={{ fontSize: 14, fontWeight: 500, color: '#fafafa', marginBottom: 8 }}>
                       {result.payment.amount} · &lt;3 seconds · $0.001
                     </p>
-                    <p style={{ fontSize: 11, fontFamily: 'var(--font-geist-mono,monospace)', color: '#71717a', marginBottom: 10, wordBreak: 'break-all', lineHeight: 1.6 }}>
-                      {result.payment.transactionId}
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10 }}>
+                      <p style={{ fontSize: 11, fontFamily: 'var(--font-geist-mono,monospace)', color: '#71717a', wordBreak: 'break-all', lineHeight: 1.6, margin: 0, flex: 1 }}>
+                        {result.payment.transactionId}
+                      </p>
+                      <button onClick={() => copyToClipboard(result.payment.transactionId, 'tx-id')} title="Copy transaction ID"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 11, color: copiedKey === 'tx-id' ? '#10b981' : '#52525b', transition: 'color 0.2s', fontFamily: 'inherit', flexShrink: 0 }}>
+                        {copiedKey === 'tx-id' ? '✓' : '⧉'}
+                      </button>
+                    </div>
                     <a href={result.payment.explorerUrl} target="_blank" rel="noopener noreferrer"
                       style={{ fontSize: 13, color: '#e4e4e7', textDecoration: 'none', fontWeight: 500 }}>
                       View on Hashscan →
@@ -584,6 +663,8 @@ export default function Home() {
             )}
           </div>
         )}
+
+        </div>{/* end dynamic content area */}
       </section>
 
       {/* ── HOW IT WORKS ── */}

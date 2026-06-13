@@ -79,7 +79,18 @@ export async function POST(request: Request) {
           );
         } catch (err) {
           await recordPaymentOnChain(hcsPayload, 'ROUTING_FAILED').catch(() => {});
-          emit({ type: 'error', error: err instanceof Error ? err.message : 'Routing failed', status: 500 });
+          const rawMsg = err instanceof Error ? err.message : 'Routing failed';
+          const isLiquidity = /no route|no pool|liquidity|insufficient|dry|unavailable|not found|quote/i.test(rawMsg);
+          if (isLiquidity) {
+            emit({
+              type: 'error',
+              error: 'STAGING_LIQUIDITY_DRY',
+              message: 'Staging liquidity pool dry for this swap pair. Please try matching tokens (e.g., USDC to USDC) for a direct transfer demo.',
+              status: 500,
+            });
+          } else {
+            emit({ type: 'error', error: rawMsg, status: 500 });
+          }
           return;
         }
 
