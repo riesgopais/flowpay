@@ -81,24 +81,57 @@ const STATS = [
   { val: '0',      label: 'Solidity'   },
 ];
 
+interface ParsedPreview {
+  humanSummary: string;
+  amount: number;
+  fromToken: string;
+  toToken: string;
+  memo: string;
+  senderName: string | null;
+  recipientName: string | null;
+  hederaRecipient: string | null;
+}
+
 export default function Home() {
   const { address: walletAddress } = useAccount();
   const { sendTransaction, isPending: isSigning, data: txHash } = useSendTransaction();
   const [intent, setIntent]             = useState('');
+  const [stage, setStage]               = useState<'idle' | 'previewing' | 'confirming' | 'executing' | 'done'>('idle');
+  const [preview, setPreview]           = useState<ParsedPreview | null>(null);
   const [loading, setLoading]           = useState(false);
   const [stepIndex, setStepIndex]       = useState(-1);
   const [result, setResult]             = useState<PaymentResult | null>(null);
   const [error, setError]               = useState<string | null>(null);
   const [visibleCards, setVisibleCards] = useState<number[]>([]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handlePreview(e: React.FormEvent) {
     e.preventDefault();
     if (!intent.trim() || loading) return;
+    setStage('previewing');
+    setError(null);
+    try {
+      const res = await fetch('/api/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); setStage('idle'); return; }
+      setPreview(data);
+      setStage('confirming');
+    } catch {
+      setError('Network error. Please try again.');
+      setStage('idle');
+    }
+  }
+
+  async function handleExecute() {
+    if (!preview) return;
+    setStage('executing');
     setLoading(true);
     setResult(null);
     setError(null);
     setVisibleCards([]);
-    setStepIndex(0);
 
     const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -108,17 +141,21 @@ export default function Home() {
       body: JSON.stringify({ intent, senderAddress: walletAddress }),
     }).then(r => r.json());
 
-    for (let i = 0; i < 4; i++) {
-      setStepIndex(i);
-      await wait(560);
-    }
+    // Steps 1-2 animate freely; steps 3-4 wait for the real API response
+    setStepIndex(0); await wait(700);
+    setStepIndex(1); await wait(700);
+    setStepIndex(2);
 
     try {
-      const data = await fetchPromise;
+      const [data] = await Promise.all([fetchPromise, wait(500)]);
+      setStepIndex(3); await wait(300);
+
       if (data.error) {
         setError(data.error);
+        setStage('idle');
       } else {
         setResult(data);
+        setStage('done');
         for (let i = 0; i < 4; i++) {
           await wait(110);
           setVisibleCards(prev => [...prev, i]);
@@ -126,6 +163,7 @@ export default function Home() {
       }
     } catch {
       setError('Network error. Please try again.');
+      setStage('idle');
     } finally {
       setLoading(false);
       setStepIndex(-1);
@@ -134,13 +172,16 @@ export default function Home() {
 
   function reset() {
     setResult(null);
+    setPreview(null);
     setIntent('');
     setError(null);
     setVisibleCards([]);
     setStepIndex(-1);
+    setStage('idle');
   }
 
-  const progress = loading ? ((stepIndex + 1) / 4) * 100 : result ? 100 : 0;
+  const isExecuting = stage === 'executing';
+  const progress = isExecuting ? ((stepIndex + 1) / 4) * 100 : stage === 'done' ? 100 : 0;
 
   return (
     <div style={{ background: '#000', minHeight: '100vh', color: '#F5F5F7' }}>
@@ -208,24 +249,26 @@ export default function Home() {
             rows={3}
             disabled={loading}
             style={{ width: '100%', padding: '20px', fontSize: 16, resize: 'none', display: 'block', lineHeight: 1.5 }}
-            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e as unknown as React.FormEvent); }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handlePreview(e as unknown as React.FormEvent); }}
           />
         </div>
 
         {/* CTA row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 40 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: stage === 'confirming' ? 16 : 40 }}>
           <button
-            onClick={handleSubmit}
-            disabled={!intent.trim() || loading}
+            onClick={stage === 'idle' ? handlePreview : undefined}
+            disabled={!intent.trim() || stage === 'previewing' || stage === 'executing'}
             className="btn-primary"
             style={{ padding: '13px 30px', fontSize: 15 }}
           >
-            {loading
+            {stage === 'previewing'
+              ? <><span style={{ width: 13, height: 13, border: '1.5px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />Parsing…</>
+              : stage === 'executing'
               ? <><span style={{ width: 13, height: 13, border: '1.5px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />Processing</>
               : 'Execute'}
           </button>
           <span style={{ fontSize: 12, color: '#3A3A3C', letterSpacing: '0.1px' }}>⌘ Return</span>
-          {result && !loading && (
+          {stage === 'done' && (
             <button onClick={reset} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#86868B', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.1px', transition: 'color 0.15s' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#F5F5F7')}
               onMouseLeave={e => (e.currentTarget.style.color = '#86868B')}>
@@ -234,8 +277,54 @@ export default function Home() {
           )}
         </div>
 
+        {/* ── CONFIRMATION CARD ── */}
+        {stage === 'confirming' && preview && (
+          <div className="animate-fade-up" style={{
+            background: '#0A0A0A',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderLeft: '3px solid #FF6B1A',
+            borderRadius: '2px 16px 16px 2px',
+            padding: '20px 22px',
+            marginBottom: 24,
+          }}>
+            <p style={{ fontSize: 11, color: '#86868B', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 12 }}>
+              FlowPay understood
+            </p>
+            <p style={{ fontSize: 16, fontWeight: 600, color: '#F5F5F7', marginBottom: 16, lineHeight: 1.4 }}>
+              {preview.humanSummary}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+              {[
+                `${preview.amount} ${preview.toToken}`,
+                preview.senderName ? `From: ${preview.senderName}` : null,
+                preview.recipientName ? `To: ${preview.recipientName}` : null,
+                preview.hederaRecipient ? `Hedera: ${preview.hederaRecipient}` : null,
+                preview.memo,
+                'Fee: $0.001',
+              ].filter(Boolean).map(t => (
+                <span key={t!} style={{ fontSize: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#86868B', padding: '3px 10px', borderRadius: 980 }}>{t}</span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setStage('idle')}
+                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.12)', color: '#86868B', borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                ← Edit
+              </button>
+              <button
+                onClick={handleExecute}
+                className="btn-primary"
+                style={{ padding: '9px 22px', fontSize: 13 }}
+              >
+                Confirm & Execute →
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Progress bar + step label */}
-        {loading && (
+        {isExecuting && (
           <div style={{ marginBottom: 32 }} className="animate-fade-in">
             <div style={{ height: 2, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginBottom: 10, overflow: 'hidden' }}>
               <div style={{ height: '100%', background: '#F5F5F7', borderRadius: 2, width: `${progress}%`, transition: 'width 0.5s ease' }} />
@@ -248,7 +337,7 @@ export default function Home() {
         )}
 
         {/* Examples */}
-        {!result && !loading && !error && (
+        {stage === 'idle' && !error && (
           <div style={{ marginBottom: 16 }}>
             <p style={{ fontSize: 11, color: '#3A3A3C', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 12 }}>Examples</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

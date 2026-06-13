@@ -1,8 +1,34 @@
 import { createComposeSdk, resources, materialisers } from '@lifi/composer-sdk';
 
-const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
-const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const DEMO_SIGNER = '0x742d35Cc6634C0532925a3b844Bc454e4438f44e';
+
+// Ethereum mainnet token addresses
+const TOKEN_ADDRESSES: Record<string, string> = {
+  ETH:   '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+  WETH:  '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+  USDC:  '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+  USDT:  '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  DAI:   '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+  WBTC:  '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+};
+
+// Token decimals for amount conversion
+const TOKEN_DECIMALS: Record<string, number> = {
+  ETH: 18, WETH: 18, DAI: 18, USDC: 6, USDT: 6, WBTC: 8,
+};
+
+function resolveToken(symbol: string): string {
+  const upper = symbol.toUpperCase();
+  // ETH routes through WETH in Composer
+  return TOKEN_ADDRESSES[upper === 'ETH' ? 'WETH' : upper] ?? TOKEN_ADDRESSES.WETH;
+}
+
+function toWei(amount: number, token: string): string {
+  const decimals = TOKEN_DECIMALS[token.toUpperCase()] ?? 18;
+  // Cap at sane demo amounts to avoid overflow
+  const capped = Math.min(amount, token.toUpperCase() === 'WBTC' ? 0.01 : 1);
+  return BigInt(Math.round(capped * 10 ** decimals)).toString();
+}
 
 export interface LiFiResult {
   flowBuilt: boolean;
@@ -10,6 +36,8 @@ export interface LiFiResult {
   steps: string[];
   compiled: boolean;
   calldataPreview?: string;
+  fromToken: string;
+  toToken: string;
   transactionRequest?: {
     to: string;
     data: string;
@@ -20,11 +48,18 @@ export interface LiFiResult {
 
 export async function buildCrossChainPaymentFlow(
   recipientAddress: string,
-  senderAddress?: string
+  senderAddress?: string,
+  fromToken = 'ETH',
+  toToken = 'USDC',
+  amount = 0.01,
 ): Promise<LiFiResult> {
   const apiKey = process.env.LIFI_API_KEY;
+  const fromAddr = resolveToken(fromToken);
+  const toAddr   = resolveToken(toToken);
+  const isSameToken = fromAddr === toAddr;
+
   if (!apiKey) {
-    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false };
+    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false, fromToken, toToken };
   }
 
   try {
@@ -35,22 +70,29 @@ export async function buildCrossChainPaymentFlow(
 
     const builder = sdk.flow(1, {
       name: 'flowpay-remittance',
-      inputs: { amountIn: resources.erc20(WETH, 1) },
+      inputs: { amountIn: resources.erc20(fromAddr as `0x${string}`, 1) },
     });
 
-    builder.lifi.swap('swap', {
-      bind: { amountIn: builder.inputs.amountIn },
-      config: { resourceOut: resources.erc20(USDC, 1), slippage: 0.03 },
-    });
+    const steps: string[] = [];
 
-    const steps = ['Swap WETH → USDC via LI.FI aggregator (Ethereum Mainnet)'];
+    if (!isSameToken) {
+      builder.lifi.swap('swap', {
+        bind: { amountIn: builder.inputs.amountIn },
+        config: { resourceOut: resources.erc20(toAddr as `0x${string}`, 1), slippage: 0.03 },
+      });
+      steps.push(`Swap ${fromToken.toUpperCase()} → ${toToken.toUpperCase()} via LI.FI aggregator (Ethereum Mainnet)`);
+    } else {
+      steps.push(`Transfer ${amount} ${toToken.toUpperCase()} (Ethereum Mainnet)`);
+    }
 
     try {
       const signer = (senderAddress || DEMO_SIGNER) as `0x${string}`;
+      const weiAmount = toWei(amount, fromToken);
       const result = await builder.compile({
         signer,
         inputs: {
-          amountIn: materialisers.directDeposit({ amount: '10000000000000000' }),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          amountIn: materialisers.directDeposit({ amount: weiAmount as any }),
         },
         sweepTo: builder.context.sender,
         simulationPolicy: 'allow-revert',
@@ -65,6 +107,8 @@ export async function buildCrossChainPaymentFlow(
         flowName: 'flowpay-remittance',
         steps,
         compiled,
+        fromToken,
+        toToken,
         calldataPreview: txReq?.data ? `${txReq.data.slice(0, 18)}...` : undefined,
         transactionRequest: txReq?.to && txReq?.data ? {
           to: txReq.to,
@@ -74,10 +118,10 @@ export async function buildCrossChainPaymentFlow(
         } : undefined,
       };
     } catch {
-      return { flowBuilt: true, flowName: 'flowpay-remittance', steps, compiled: false };
+      return { flowBuilt: true, flowName: 'flowpay-remittance', steps, compiled: false, fromToken, toToken };
     }
   } catch (err) {
     console.error('[LI.FI] Flow build error:', err);
-    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false };
+    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false, fromToken, toToken };
   }
 }

@@ -12,7 +12,13 @@ export async function POST(request: Request) {
     }
 
     const parsed = await parsePaymentIntent(intent);
-    const lifi = await buildCrossChainPaymentFlow(parsed.recipientAddress, senderAddress);
+    const lifi = await buildCrossChainPaymentFlow(
+      parsed.recipientAddress,
+      senderAddress,
+      parsed.fromToken,
+      parsed.toToken,
+      parsed.amount,
+    );
     const hcs = await recordPaymentOnChain({
       intent: parsed.humanSummary,
       amount: parsed.amount,
