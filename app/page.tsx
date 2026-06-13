@@ -59,8 +59,8 @@ const PIPELINE = ['Input', 'Gemini', 'LI.FI', 'Hedera'];
 const STEP_LABELS = [
   'Parsing intent with Gemini…',
   'Building cross-chain route via LI.FI…',
-  'Recording on Hedera HCS…',
-  'Settling via HBAR transfer…',
+  'Executing settlement on Hedera…',
+  'Recording audit trail on Hedera HCS…',
 ];
 
 const EXAMPLES = [
@@ -130,29 +130,45 @@ export default function Home() {
 
     const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-    const fetchPromise = fetch('/api/pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intent, senderAddress: walletAddress }),
-    }).then(r => r.json());
-
-    setStepIndex(0); await wait(700);
-    setStepIndex(1); await wait(700);
-    setStepIndex(2);
-
     try {
-      const [data] = await Promise.all([fetchPromise, wait(500)]);
-      setStepIndex(3); await wait(300);
+      const res = await fetch('/api/pay-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent, senderAddress: walletAddress }),
+      });
 
-      if (data.error) {
-        setError(data.error);
-        setStage('idle');
-      } else {
-        setResult(data);
-        setStage('done');
-        for (let i = 0; i < 4; i++) {
-          await wait(110);
-          setVisibleCards(prev => [...prev, i]);
+      if (!res.body) throw new Error('No response body');
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event: { type: string; index?: number; error?: string; data?: PaymentResult };
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === 'step' && event.index !== undefined) {
+            setStepIndex(event.index);
+          } else if (event.type === 'done' && event.data) {
+            setResult(event.data);
+            setStage('done');
+            for (let i = 0; i < 4; i++) {
+              await wait(110);
+              setVisibleCards(prev => [...prev, i]);
+            }
+          } else if (event.type === 'error') {
+            setError(event.error ?? 'Unknown error');
+            setStage('idle');
+          }
         }
       }
     } catch {

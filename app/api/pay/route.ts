@@ -17,12 +17,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: parsed.error }, { status: 422 });
     }
 
-    // Resolve recipient name → real address (same logic as /api/parse)
+    // Issue 3: amount guard — Gemini schema forces NUMBER but defense-in-depth
+    if (!parsed.amount || isNaN(parsed.amount) || parsed.amount <= 0) {
+      return NextResponse.json(
+        { error: 'Invalid amount — please specify a number greater than 0.' },
+        { status: 422 },
+      );
+    }
+
+    // Issue 1: resolve recipient name → real address
     if (parsed.recipientName) {
       const resolved = resolveRecipientName(parsed.recipientName);
       if (resolved) {
         parsed.recipientAddress = resolved.evm;
         parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;
+      } else {
+        // Name given but not in registry — require an explicit address in the intent
+        const hasExplicitEVM    = /0x[a-fA-F0-9]{40}/.test(intent);
+        const hasExplicitHedera = /\b0\.\d+\.\d+\b/.test(intent);
+        if (!hasExplicitEVM && !hasExplicitHedera) {
+          return NextResponse.json(
+            {
+              error: `"${parsed.recipientName}" is not in the FlowPay registry. ` +
+                     `Please include a wallet address (0x…) or Hedera account (0.0.X).`,
+            },
+            { status: 422 },
+          );
+        }
+        // Explicit address present → Gemini parsed it correctly, use as-is
       }
     }
 
