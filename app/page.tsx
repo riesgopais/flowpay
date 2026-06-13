@@ -545,7 +545,7 @@ export default function Home() {
           <div style={{ flex: 1, height: 1, background: '#18181b' }} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
+        <div className="hiw-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
           {[
             {
               n: '01', title: 'You type anything.',

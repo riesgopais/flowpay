@@ -222,6 +222,14 @@ body {
 }
 .docs-sidebar-link:hover { background: var(--card); color: var(--text-1); }
 
+/* ── RESPONSIVE ── */
+
+@media (max-width: 640px) {
+  .hiw-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ── BRAND SWATCH ── */
 
 .brand-swatch {
