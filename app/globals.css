@@ -69,6 +69,15 @@ body {
   50%       { opacity: 0.3; }
 }
 
+@keyframes shimmerSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.shimmer-beam {
+  animation: shimmerSlide 1.4s ease-in-out infinite;
+}
+
 /* ── UTILITIES ── */
 
 .animate-fade-up {
