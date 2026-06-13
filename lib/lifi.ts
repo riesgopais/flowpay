@@ -10,6 +10,12 @@ export interface LiFiResult {
   steps: string[];
   compiled: boolean;
   calldataPreview?: string;
+  transactionRequest?: {
+    to: string;
+    data: string;
+    value: string;
+    chainId: number;
+  };
 }
 
 export async function buildCrossChainPaymentFlow(
@@ -60,6 +66,12 @@ export async function buildCrossChainPaymentFlow(
         steps,
         compiled,
         calldataPreview: txReq?.data ? `${txReq.data.slice(0, 18)}...` : undefined,
+        transactionRequest: txReq?.to && txReq?.data ? {
+          to: txReq.to,
+          data: txReq.data,
+          value: txReq.value ?? '0x0',
+          chainId: 1,
+        } : undefined,
       };
     } catch {
       return { flowBuilt: true, flowName: 'flowpay-remittance', steps, compiled: false };

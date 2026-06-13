@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount } from 'wagmi';
+import { useAccount, useSendTransaction } from 'wagmi';
 
 interface PaymentResult {
   success: boolean;
@@ -21,6 +21,12 @@ interface PaymentResult {
     steps: string[];
     compiled: boolean;
     calldataPreview?: string;
+    transactionRequest?: {
+      to: string;
+      data: string;
+      value: string;
+      chainId: number;
+    };
   };
   hcs: {
     topicId: string;
@@ -77,6 +83,7 @@ const STATS = [
 
 export default function Home() {
   const { address: walletAddress } = useAccount();
+  const { sendTransaction, isPending: isSigning, data: txHash } = useSendTransaction();
   const [intent, setIntent]             = useState('');
   const [loading, setLoading]           = useState(false);
   const [stepIndex, setStepIndex]       = useState(-1);
@@ -294,6 +301,38 @@ export default function Home() {
                     ))}
                     {result.lifi.compiled && result.lifi.calldataPreview && (
                       <div className="code-block" style={{ marginTop: 10 }}>{result.lifi.calldataPreview}</div>
+                    )}
+                    {result.lifi.transactionRequest && walletAddress && (
+                      <div style={{ marginTop: 14 }}>
+                        {txHash ? (
+                          <a
+                            href={`https://etherscan.io/tx/${txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 13, color: '#32D74B', textDecoration: 'none', fontWeight: 500 }}
+                          >
+                            ✓ Executed on-chain → Etherscan
+                          </a>
+                        ) : (
+                          <button
+                            onClick={() => sendTransaction({
+                              to: result.lifi.transactionRequest!.to as `0x${string}`,
+                              data: result.lifi.transactionRequest!.data as `0x${string}`,
+                              value: BigInt(result.lifi.transactionRequest!.value ?? '0'),
+                              chainId: result.lifi.transactionRequest!.chainId,
+                            })}
+                            disabled={isSigning}
+                            style={{
+                              background: '#FF6B1A', color: '#000', border: 'none',
+                              borderRadius: 8, padding: '9px 18px', fontSize: 13,
+                              fontWeight: 600, cursor: isSigning ? 'not-allowed' : 'pointer',
+                              opacity: isSigning ? 0.7 : 1, fontFamily: 'inherit',
+                            }}
+                          >
+                            {isSigning ? 'Waiting for signature…' : 'Sign & Execute on-chain →'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </>
                 ),
