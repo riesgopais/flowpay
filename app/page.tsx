@@ -279,8 +279,8 @@ export default function Home() {
                     <p style={{ fontSize: 15, fontWeight: 500, color: '#F5F5F7', marginBottom: 12, lineHeight: 1.5 }}>{result.parsed.humanSummary}</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {[
-                        `${result.parsed.amount} ${result.parsed.fromToken}`,
-                        `→ ${result.parsed.toToken}`,
+                        `${result.parsed.amount} ${result.parsed.toToken}`,
+                        `via ${result.parsed.fromToken}`,
                         result.parsed.memo,
                         result.parsed.senderName ? `From: ${result.parsed.senderName}` : null,
                         result.parsed.recipientName ? `To: ${result.parsed.recipientName}` : null,
