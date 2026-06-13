@@ -130,11 +130,20 @@ export default function Home() {
 
     const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+    // Watchdog: reset on each SSE event. If 25s pass without progress → abort.
+    const abortCtrl = new AbortController();
+    let watchdog = setTimeout(() => abortCtrl.abort(), 25_000);
+    const resetWatchdog = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => abortCtrl.abort(), 25_000);
+    };
+
     try {
       const res = await fetch('/api/pay-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intent, senderAddress: walletAddress }),
+        signal: abortCtrl.signal,
       });
 
       if (!res.body) throw new Error('No response body');
@@ -146,6 +155,7 @@ export default function Home() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetWatchdog();
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split('\n');
@@ -171,10 +181,16 @@ export default function Home() {
           }
         }
       }
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      setError(
+        isTimeout
+          ? 'Network congestion detected — the on-chain route is taking longer than usual. Please retry.'
+          : 'Network error. Please try again.',
+      );
       setStage('idle');
     } finally {
+      clearTimeout(watchdog);
       setLoading(false);
       setStepIndex(-1);
     }
