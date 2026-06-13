@@ -177,8 +177,8 @@ data: {"type":"done","data":{
   "success": true,
   "parsed":  { "humanSummary": "...", "amount": 100, ... },
   "lifi":    { "flowBuilt": true, "steps": [...], "compiled": true },
-  "hcs":     { "topicId": "0.0.9217982", "sequenceNumber": "42", "explorerUrl": "..." },
-  "payment": { "transactionId": "0.0.9185784@...", "amount": "0.001 HBAR", "explorerUrl": "..." }
+  "hcs":     { "topicId": "0.0.9217982", "sequenceNumber": "42", "explorerUrl": "https://hashscan.io/testnet/topic/0.0.9217982" },
+  "payment": { "transactionId": "0.0.9185784@1749812345.000000000", "amount": "0.001 HBAR", "explorerUrl": "https://hashscan.io/testnet/transaction/0.0.9185784@1749812345.000000000" }
 }}
 
 data: {"type":"error","error":"BTC is not supported","status":422}
