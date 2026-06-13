@@ -34,30 +34,51 @@ interface PaymentResult {
 
 const EXAMPLES = [
   'Send 200 USDC from María in Buenos Aires to Juan in Mexico City for rent',
-  'Pay 0.05 ETH to 0x742d35Cc6634C0532925a3b844Bc454e4438f44e for freelance design work',
+  'Pay 0.05 ETH to 0x742d35Cc6634C0532925a3b844Bc454e4438f44e for freelance work',
   'Transfer 500 USDC to my sister in Colombia for school fees',
 ];
 
-const PIPELINE = [
-  { label: 'AI Intent',    sub: 'Claude Haiku',   color: 'var(--c-ai)'     },
-  { label: 'LI.FI Route',  sub: 'Composer SDK',   color: 'var(--c-lifi)'   },
-  { label: 'HCS Record',   sub: 'Hedera Audit',   color: 'var(--c-hcs)'    },
-  { label: 'Settlement',   sub: '< 3 sec',        color: 'var(--c-settle)' },
+const PROCESSING_STEPS = [
+  'Parsing intent with Claude AI',
+  'Building cross-chain flow via LI.FI',
+  'Recording on Hedera HCS',
+  'Settling via HBAR transfer',
+];
+
+const HOW_IT_WORKS = [
+  {
+    n: '01',
+    title: 'You type anything.',
+    desc: 'Plain language. A name, an amount, a reason. No wallet addresses required, no chain selection, no token research.',
+    sub: 'Powered by Claude Haiku',
+  },
+  {
+    n: '02',
+    title: 'FlowPay routes it.',
+    desc: 'LI.FI Composer builds an atomic cross-chain flow — all steps in one transaction. If anything fails, the whole flow reverts.',
+    sub: 'LI.FI Composer SDK',
+  },
+  {
+    n: '03',
+    title: 'Hedera confirms it.',
+    desc: 'Finality in under 3 seconds. Every payment permanently recorded on a public audit trail. No Solidity required.',
+    sub: 'Hedera HCS + HBAR',
+  },
 ];
 
 const STATS = [
-  { val: '< 3s',   label: 'Finality'  },
-  { val: '$0.001', label: 'Per tx'    },
-  { val: '15+',    label: 'EVM chains'},
-  { val: '0',      label: 'Solidity'  },
+  { val: '< 3s',   label: 'Finality'   },
+  { val: '$0.001', label: 'Per tx'     },
+  { val: '15+',    label: 'EVM chains' },
+  { val: '0',      label: 'Solidity'   },
 ];
 
 export default function Home() {
-  const [intent, setIntent]           = useState('');
-  const [loading, setLoading]         = useState(false);
-  const [activeStep, setActiveStep]   = useState(-1);
-  const [result, setResult]           = useState<PaymentResult | null>(null);
-  const [error, setError]             = useState<string | null>(null);
+  const [intent, setIntent]             = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [stepIndex, setStepIndex]       = useState(-1);
+  const [result, setResult]             = useState<PaymentResult | null>(null);
+  const [error, setError]               = useState<string | null>(null);
   const [visibleCards, setVisibleCards] = useState<number[]>([]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -67,6 +88,7 @@ export default function Home() {
     setResult(null);
     setError(null);
     setVisibleCards([]);
+    setStepIndex(0);
 
     const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -77,7 +99,7 @@ export default function Home() {
     }).then(r => r.json());
 
     for (let i = 0; i < 4; i++) {
-      setActiveStep(i);
+      setStepIndex(i);
       await wait(560);
     }
 
@@ -88,7 +110,7 @@ export default function Home() {
       } else {
         setResult(data);
         for (let i = 0; i < 4; i++) {
-          await wait(100);
+          await wait(110);
           setVisibleCards(prev => [...prev, i]);
         }
       }
@@ -96,7 +118,7 @@ export default function Home() {
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
-      setActiveStep(-1);
+      setStepIndex(-1);
     }
   }
 
@@ -105,155 +127,142 @@ export default function Home() {
     setIntent('');
     setError(null);
     setVisibleCards([]);
-    setActiveStep(-1);
+    setStepIndex(-1);
   }
 
-  const S: React.CSSProperties = { fontFamily: 'inherit' };
+  const progress = loading ? ((stepIndex + 1) / 4) * 100 : result ? 100 : 0;
 
   return (
-    <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
+    <div style={{ background: '#000', minHeight: '100vh', color: '#F5F5F7' }}>
 
       {/* ── NAV ── */}
       <header style={{
-        position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(0,0,0,0.82)',
+        position: 'sticky', top: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.85)',
         backdropFilter: 'saturate(180%) blur(20px)',
         WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-        borderBottom: '1px solid var(--separator)',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
       }}>
         <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.4px' }}>
-            Flow<span style={{ color: 'var(--accent)' }}>Pay</span>
+          <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.3px' }}>
+            Flow<span style={{ color: '#FF6B1A' }}>Pay</span>
           </span>
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            <Link href="/docs"  className="nav-link">Docs</Link>
-            <Link href="/brand" className="nav-link">Brand</Link>
-            <a href="https://github.com/riesgopais/flowpay" target="_blank" rel="noopener noreferrer" className="nav-link">GitHub</a>
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            <Link href="/docs"  className="nav-link" style={{ fontSize: 13 }}>Docs</Link>
+            <Link href="/brand" className="nav-link" style={{ fontSize: 13 }}>Brand</Link>
+            <a href="https://github.com/riesgopais/flowpay" target="_blank" rel="noopener noreferrer" className="nav-link" style={{ fontSize: 13 }}>GitHub</a>
           </nav>
         </div>
       </header>
 
       {/* ── HERO ── */}
-      <section style={{ textAlign: 'center', padding: '100px 24px 80px' }} className="animate-fade-up">
-        <div style={{ display: 'inline-block', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 980, padding: '5px 14px', marginBottom: 32 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-2)', letterSpacing: '0.2px' }}>
-            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--c-settle)', marginRight: 7, verticalAlign: 'middle', animation: 'blink 2.2s ease infinite' }} />
-            Live on Hedera Testnet
-          </span>
+      <section style={{ maxWidth: 960, margin: '0 auto', padding: '96px 24px 0', textAlign: 'center' }} className="animate-fade-in">
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 980, padding: '5px 14px', marginBottom: 36 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#32D74B', display: 'inline-block', animation: 'blink 2.2s ease infinite' }} />
+          <span style={{ fontSize: 12, color: '#86868B', letterSpacing: '0.1px' }}>Live on Hedera Testnet</span>
         </div>
 
-        <h1 style={{ fontSize: 'clamp(44px, 8vw, 80px)', fontWeight: 700, letterSpacing: 'clamp(-2px, -0.04em, -3px)', lineHeight: 1.05, marginBottom: 24, color: 'var(--text-1)' }}>
+        <h1 style={{ fontSize: 'clamp(48px, 8.5vw, 84px)', fontWeight: 700, letterSpacing: 'clamp(-2px, -0.04em, -3.5px)', lineHeight: 1.04, marginBottom: 20, color: '#F5F5F7' }}>
           Move money at<br />the speed of thought.
         </h1>
 
-        <p style={{ fontSize: 21, color: 'var(--text-2)', maxWidth: 520, margin: '0 auto 56px', lineHeight: 1.5, fontWeight: 400, letterSpacing: '-0.1px' }}>
+        <p style={{ fontSize: 19, color: '#86868B', maxWidth: 500, margin: '0 auto 56px', lineHeight: 1.55, fontWeight: 400, letterSpacing: '-0.1px' }}>
           Type what you want to pay. FlowPay routes, executes, and settles across any chain — in plain language.
         </p>
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 48 }}>
+        {/* Stats */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 56, marginBottom: 72 }}>
           {STATS.map(({ val, label }) => (
             <div key={label}>
-              <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.8px', color: 'var(--text-1)' }}>{val}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, letterSpacing: '0.2px' }}>{label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── PIPELINE ── */}
-      <section style={{ maxWidth: 760, margin: '0 auto', padding: '0 24px 64px' }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          {PIPELINE.map((step, i) => (
-            <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: i < 3 ? '0 0 auto' : undefined }}>
-              <div style={{
-                padding: '14px 18px',
-                borderRadius: 14,
-                background: activeStep === i ? 'var(--card-hover)' : result ? 'var(--card)' : 'var(--card)',
-                border: `1px solid ${activeStep === i ? 'var(--border-strong)' : result ? step.color + '40' : 'var(--border)'}`,
-                textAlign: 'center',
-                minWidth: 110,
-                transition: 'all 0.3s ease',
-                opacity: loading && activeStep < i ? 0.4 : 1,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: activeStep === i || result ? 'var(--text-1)' : 'var(--text-2)', letterSpacing: '-0.1px', marginBottom: 3, transition: 'color 0.3s' }}>
-                  {loading && activeStep === i
-                    ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 10, height: 10, border: '1.5px solid var(--text-3)', borderTopColor: 'var(--text-1)', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block', flexShrink: 0 }} />
-                        {step.label}
-                      </span>
-                    : step.label}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-2)', letterSpacing: '0.1px' }}>{step.sub}</div>
-              </div>
-              {i < 3 && (
-                <div className="step-bar" style={{ minWidth: 24 }}>
-                  <div className={`step-bar-fill ${activeStep > i && loading ? 'active' : activeStep <= i && loading ? '' : result ? 'done' : ''}`} />
-                </div>
-              )}
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px', color: '#F5F5F7' }}>{val}</div>
+              <div style={{ fontSize: 11, color: '#86868B', marginTop: 3, letterSpacing: '0.1px' }}>{label}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* ── TERMINAL ── */}
-      <section style={{ maxWidth: 640, margin: '0 auto', padding: '0 24px 120px' }}>
+      <section style={{ maxWidth: 720, margin: '0 auto', padding: '0 24px 0' }}>
 
-        <div className="fp-card" style={{ padding: 28 }}>
-          <form onSubmit={handleSubmit} style={S}>
-            <textarea
-              className="fp-input"
-              value={intent}
-              onChange={e => setIntent(e.target.value)}
-              placeholder="Send 200 USDC from María in Buenos Aires to Juan in Mexico City for rent…"
-              rows={3}
-              disabled={loading}
-              style={{ width: '100%', padding: '16px', resize: 'none', display: 'block', marginBottom: 14 }}
-              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e as unknown as React.FormEvent); }}
-            />
+        {/* Input */}
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <textarea
+            className="fp-input"
+            value={intent}
+            onChange={e => setIntent(e.target.value)}
+            placeholder="Send 200 USDC from María in Buenos Aires to Juan in Mexico City for rent…"
+            rows={3}
+            disabled={loading}
+            style={{ width: '100%', padding: '20px', fontSize: 16, resize: 'none', display: 'block', lineHeight: 1.5 }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e as unknown as React.FormEvent); }}
+          />
+        </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button type="submit" disabled={!intent.trim() || loading} className="btn-primary" style={{ padding: '12px 26px' }}>
-                {loading
-                  ? <><span style={{ width: 14, height: 14, border: '1.5px solid rgba(0,0,0,0.25)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} /> Processing</>
-                  : 'Execute'}
-              </button>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>⌘ Return to send</span>
-            </div>
-          </form>
-
-          {!result && !loading && !error && (
-            <div style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--separator)' }}>
-              <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10, letterSpacing: '0.3px', textTransform: 'uppercase', fontWeight: 500 }}>Examples</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {EXAMPLES.map((ex, i) => (
-                  <button key={i} onClick={() => setIntent(ex)} className="btn-ghost" style={{ padding: '11px 14px' }}>
-                    {ex}
-                  </button>
-                ))}
-              </div>
-            </div>
+        {/* CTA row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 40 }}>
+          <button
+            onClick={handleSubmit}
+            disabled={!intent.trim() || loading}
+            className="btn-primary"
+            style={{ padding: '13px 30px', fontSize: 15 }}
+          >
+            {loading
+              ? <><span style={{ width: 13, height: 13, border: '1.5px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />Processing</>
+              : 'Execute'}
+          </button>
+          <span style={{ fontSize: 12, color: '#3A3A3C', letterSpacing: '0.1px' }}>⌘ Return</span>
+          {result && !loading && (
+            <button onClick={reset} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#86868B', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.1px', transition: 'color 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#F5F5F7')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#86868B')}>
+              ← New payment
+            </button>
           )}
         </div>
 
+        {/* Progress bar + step label */}
+        {loading && (
+          <div style={{ marginBottom: 32 }} className="animate-fade-in">
+            <div style={{ height: 2, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginBottom: 10, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#F5F5F7', borderRadius: 2, width: `${progress}%`, transition: 'width 0.5s ease' }} />
+            </div>
+            <p style={{ fontSize: 13, color: '#86868B' }}>
+              {stepIndex >= 0 ? PROCESSING_STEPS[stepIndex] : ''}
+              <span style={{ animation: 'blink 1s ease infinite', display: 'inline-block', marginLeft: 2 }}>_</span>
+            </p>
+          </div>
+        )}
+
+        {/* Examples */}
+        {!result && !loading && !error && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 11, color: '#3A3A3C', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 12 }}>Examples</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {EXAMPLES.map((ex, i) => (
+                <button key={i} onClick={() => setIntent(ex)} className="btn-ghost" style={{ padding: '12px 16px', fontSize: 13, textAlign: 'left' }}>
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
         {error && (
-          <div style={{ marginTop: 16, background: 'rgba(255,69,58,0.08)', border: '1px solid rgba(255,69,58,0.2)', borderRadius: 14, padding: '16px 20px', color: '#FF453A', fontSize: 14 }}>
+          <div style={{ background: 'rgba(255,69,58,0.08)', border: '1px solid rgba(255,69,58,0.18)', borderRadius: 14, padding: '16px 20px', color: '#FF453A', fontSize: 14, marginBottom: 16 }}>
             {error}
           </div>
         )}
 
-        {/* ── RESULTS ── */}
+        {/* Results */}
         {result && (
-          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
             {[
               {
-                idx: 0,
-                label: 'Intent Parsed',
-                service: 'Claude Haiku',
-                accentColor: 'var(--c-ai)',
+                idx: 0, label: 'Intent Parsed', service: 'Claude Haiku', accent: '#0A84FF',
                 body: (
                   <>
-                    <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-1)', marginBottom: 12 }}>{result.parsed.humanSummary}</p>
+                    <p style={{ fontSize: 15, fontWeight: 500, color: '#F5F5F7', marginBottom: 12, lineHeight: 1.5 }}>{result.parsed.humanSummary}</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {[
                         `${result.parsed.amount} ${result.parsed.fromToken}`,
@@ -262,98 +271,112 @@ export default function Home() {
                         result.parsed.senderName ? `From: ${result.parsed.senderName}` : null,
                         result.parsed.recipientName ? `To: ${result.parsed.recipientName}` : null,
                       ].filter(Boolean).map(t => (
-                        <span key={t!} style={{ fontSize: 12, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-2)', padding: '3px 10px', borderRadius: 980, letterSpacing: '-0.1px' }}>{t}</span>
+                        <span key={t!} style={{ fontSize: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#86868B', padding: '3px 10px', borderRadius: 980 }}>{t}</span>
                       ))}
                     </div>
                   </>
                 ),
               },
               {
-                idx: 1,
-                label: 'Cross-chain Route',
-                service: 'LI.FI Composer',
-                accentColor: 'var(--c-lifi)',
+                idx: 1, label: 'Cross-chain Route', service: 'LI.FI Composer', accent: '#FF6B1A',
                 body: (
                   <>
-                    <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-1)', marginBottom: 10 }}>Atomic flow · {result.parsed.fromToken} → {result.parsed.toToken}</p>
+                    <p style={{ fontSize: 15, fontWeight: 500, color: '#F5F5F7', marginBottom: 8 }}>Atomic flow · {result.parsed.fromToken} → {result.parsed.toToken}</p>
                     {result.lifi.steps.map((s, i) => (
-                      <p key={i} style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 4 }}>→ {s}</p>
+                      <p key={i} style={{ fontSize: 13, color: '#86868B', marginBottom: 4, lineHeight: 1.5 }}>→ {s}</p>
                     ))}
-                    {result.lifi.compiled && (
-                      <div className="code-block" style={{ marginTop: 12 }}>{result.lifi.calldataPreview || '0x...'}</div>
+                    {result.lifi.compiled && result.lifi.calldataPreview && (
+                      <div className="code-block" style={{ marginTop: 10 }}>{result.lifi.calldataPreview}</div>
                     )}
                   </>
                 ),
               },
               {
-                idx: 2,
-                label: 'Audit Trail',
-                service: 'Hedera HCS',
-                accentColor: 'var(--c-hcs)',
+                idx: 2, label: 'Audit Trail', service: 'Hedera HCS', accent: '#BF5AF2',
                 body: (
                   <>
-                    <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-1)', marginBottom: 10 }}>Recorded · immutable · public</p>
-                    <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>
-                      Topic <span style={{ color: 'var(--text-1)', fontFamily: 'var(--font-geist-mono,monospace)' }}>{result.hcs.topicId}</span>
-                      <span style={{ margin: '0 8px', color: 'var(--text-3)' }}>·</span>
-                      Entry <span style={{ color: 'var(--text-1)' }}>#{result.hcs.sequenceNumber}</span>
+                    <p style={{ fontSize: 15, fontWeight: 500, color: '#F5F5F7', marginBottom: 8 }}>Recorded · immutable · public</p>
+                    <p style={{ fontSize: 13, color: '#86868B', marginBottom: 12, lineHeight: 1.5 }}>
+                      Topic <span style={{ color: '#F5F5F7', fontFamily: 'var(--font-geist-mono,monospace)', fontSize: 12 }}>{result.hcs.topicId}</span>
+                      <span style={{ margin: '0 8px', color: '#3A3A3C' }}>·</span>
+                      Entry <span style={{ color: '#F5F5F7', fontWeight: 600 }}>#{result.hcs.sequenceNumber}</span>
                     </p>
-                    <a href={result.hcs.explorerUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--text-1)', textDecoration: 'none', fontWeight: 500 }}>View on Hashscan →</a>
+                    <a href={result.hcs.explorerUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 13, color: '#F5F5F7', textDecoration: 'none', fontWeight: 500, letterSpacing: '-0.1px' }}>
+                      View on Hashscan →
+                    </a>
                   </>
                 ),
               },
               {
-                idx: 3,
-                label: 'Settlement',
-                service: 'Hedera Testnet',
-                accentColor: 'var(--c-settle)',
+                idx: 3, label: 'Settlement', service: 'Hedera Testnet', accent: '#32D74B',
                 body: (
                   <>
-                    <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-1)', marginBottom: 10 }}>
-                      {result.payment.amount} transferred · &lt;3 seconds · $0.001
+                    <p style={{ fontSize: 15, fontWeight: 500, color: '#F5F5F7', marginBottom: 8 }}>
+                      {result.payment.amount} · &lt;3 seconds · $0.001
                     </p>
-                    <p style={{ fontSize: 12, fontFamily: 'var(--font-geist-mono,monospace)', color: 'var(--text-2)', marginBottom: 12, wordBreak: 'break-all' }}>
+                    <p style={{ fontSize: 11, fontFamily: 'var(--font-geist-mono,monospace)', color: '#86868B', marginBottom: 12, wordBreak: 'break-all', lineHeight: 1.6 }}>
                       {result.payment.transactionId}
                     </p>
-                    <a href={result.payment.explorerUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--text-1)', textDecoration: 'none', fontWeight: 500 }}>View on Hashscan →</a>
+                    <a href={result.payment.explorerUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 13, color: '#F5F5F7', textDecoration: 'none', fontWeight: 500, letterSpacing: '-0.1px' }}>
+                      View on Hashscan →
+                    </a>
                   </>
                 ),
               },
-            ].map(({ idx, label, service, accentColor, body }) =>
+            ].map(({ idx, label, service, accent, body }) =>
               visibleCards.includes(idx) && (
-                <div key={idx} className="fp-card animate-fade-up" style={{ padding: 22, borderLeft: `3px solid ${accentColor}`, borderRadius: '0 20px 20px 0', borderTopLeftRadius: 4, borderBottomLeftRadius: 4, animationDelay: `${idx * 80}ms` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', letterSpacing: '-0.1px' }}>{label}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-2)', letterSpacing: '0.1px' }}>{service}</span>
+                <div key={idx} className="animate-fade-up" style={{
+                  background: '#111',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderLeft: `3px solid ${accent}`,
+                  borderRadius: '2px 16px 16px 2px',
+                  padding: '20px 22px',
+                  animationDelay: `${idx * 80}ms`,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#F5F5F7', letterSpacing: '-0.1px' }}>{label}</span>
+                    <span style={{ fontSize: 11, color: '#3A3A3C', letterSpacing: '0.1px' }}>{service}</span>
                   </div>
                   {body}
                 </div>
               )
             )}
-
-            {visibleCards.length === 4 && (
-              <button
-                onClick={reset}
-                style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer', padding: '16px 0', fontFamily: 'inherit', letterSpacing: '-0.1px', transition: 'color 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-1)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-2)')}>
-                ← New payment
-              </button>
-            )}
           </div>
         )}
       </section>
 
+      {/* ── HOW IT WORKS ── */}
+      <section style={{ maxWidth: 960, margin: '0 auto', padding: '120px 24px 100px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 64 }}>
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+          <span style={{ fontSize: 11, color: '#3A3A3C', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>How it works</span>
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
+          {HOW_IT_WORKS.map(({ n, title, desc, sub }) => (
+            <div key={n} style={{ padding: '40px 32px', background: '#0A0A0A', borderRadius: 4, border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ fontSize: 13, color: '#3A3A3C', fontWeight: 600, fontFamily: 'var(--font-geist-mono,monospace)', marginBottom: 32, letterSpacing: '0.2px' }}>{n}</div>
+              <h3 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 14, lineHeight: 1.2, color: '#F5F5F7' }}>{title}</h3>
+              <p style={{ fontSize: 15, color: '#86868B', lineHeight: 1.65, marginBottom: 24 }}>{desc}</p>
+              <span style={{ fontSize: 11, color: '#3A3A3C', fontWeight: 600, letterSpacing: '0.3px' }}>{sub}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ── FOOTER ── */}
-      <footer style={{ borderTop: '1px solid var(--separator)', padding: '24px', textAlign: 'center' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-2)' }}>
-          Built at <span style={{ color: 'var(--accent)' }}>ETHGlobal New York 2026</span>
-          <span style={{ margin: '0 12px', color: 'var(--text-3)' }}>·</span>
-          <a href="https://github.com/riesgopais/flowpay" target="_blank" rel="noopener noreferrer" className="nav-link">GitHub</a>
-          <span style={{ margin: '0 12px', color: 'var(--text-3)' }}>·</span>
-          <Link href="/docs" className="nav-link">Docs</Link>
-          <span style={{ margin: '0 12px', color: 'var(--text-3)' }}>·</span>
-          <a href="https://hashscan.io/testnet/topic/0.0.9217982" target="_blank" rel="noopener noreferrer" className="nav-link">Hashscan</a>
+      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '28px 24px', textAlign: 'center' }}>
+        <p style={{ fontSize: 12, color: '#3A3A3C' }}>
+          Built at <span style={{ color: '#FF6B1A' }}>ETHGlobal New York 2026</span>
+          <span style={{ margin: '0 12px' }}>·</span>
+          <a href="https://github.com/riesgopais/flowpay" target="_blank" rel="noopener noreferrer" className="nav-link" style={{ fontSize: 12 }}>GitHub</a>
+          <span style={{ margin: '0 12px' }}>·</span>
+          <Link href="/docs" className="nav-link" style={{ fontSize: 12 }}>Docs</Link>
+          <span style={{ margin: '0 12px' }}>·</span>
+          <a href="https://hashscan.io/testnet/topic/0.0.9217982" target="_blank" rel="noopener noreferrer" className="nav-link" style={{ fontSize: 12 }}>Hashscan</a>
         </p>
       </footer>
     </div>
