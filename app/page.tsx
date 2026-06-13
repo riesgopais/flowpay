@@ -342,14 +342,15 @@ export default function Home() {
               {/* Node */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                 <div style={{
-                  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                  background: nodeActive(i) ? '#10b981' : '#27272a',
-                  boxShadow: nodeActive(i) ? '0 0 10px rgba(16,185,129,0.5)' : 'none',
-                  transition: 'background 0.35s ease, box-shadow 0.35s ease',
+                  width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                  background: nodeActive(i) ? '#10b981' : '#18181b',
+                  border: `2px solid ${nodeActive(i) ? '#10b981' : '#27272a'}`,
+                  boxShadow: nodeActive(i) ? '0 0 14px rgba(16,185,129,0.6)' : 'none',
+                  transition: 'background 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease',
                 }} />
                 <span style={{
-                  fontSize: 10, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase',
-                  color: nodeActive(i) ? '#a1a1aa' : '#3f3f46',
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  color: nodeActive(i) ? '#e4e4e7' : '#3f3f46',
                   transition: 'color 0.35s ease',
                 }}>
                   {label}
@@ -360,7 +361,7 @@ export default function Home() {
               {i < 3 && (
                 <div style={{
                   flex: 1, height: 2, background: '#18181b',
-                  alignSelf: 'flex-start', marginTop: 3,
+                  alignSelf: 'flex-start', marginTop: 5,
                   overflow: 'hidden', position: 'relative', minWidth: 20,
                 }}>
                   {isExecuting && (
@@ -383,7 +384,7 @@ export default function Home() {
       <section style={{ maxWidth: 680, margin: '0 auto', padding: '0 24px 120px' }}>
 
         {/* Input card */}
-        <div style={{ border: '1px solid #27272a', borderRadius: 16, background: '#09090b', overflow: 'hidden', marginBottom: 16 }}>
+        <div className="fp-input-card" style={{ border: '1px solid #27272a', borderRadius: 16, background: '#09090b', overflow: 'hidden', marginBottom: 16 }}>
           <textarea
             className="fp-input"
             value={intent}
@@ -478,23 +479,32 @@ export default function Home() {
         <div style={{ minHeight: 460 }}>
 
         {/* Step label during execution */}
-        {isExecuting && stepIndex >= 0 && (
-          <p style={{ fontSize: 12, color: '#52525b', marginBottom: 16, letterSpacing: '-0.1px' }} className="animate-fade-in">
-            {STEP_LABELS[stepIndex]}
-            <span style={{ animation: 'blink 1s ease infinite', display: 'inline-block', marginLeft: 2 }}>_</span>
-          </p>
+        {isExecuting && (
+          <div className="step-status animate-fade-in">
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%', background: '#10b981', flexShrink: 0,
+              animation: 'blink 1.2s ease infinite', display: 'inline-block',
+            }} />
+            <span style={{ fontSize: 13, color: '#a1a1aa', letterSpacing: '-0.1px', flex: 1 }}>
+              {stepIndex >= 0 ? STEP_LABELS[stepIndex] : 'Initializing…'}
+            </span>
+            <span style={{ fontSize: 11, color: '#3f3f46', fontFamily: 'var(--font-geist-mono,monospace)' }}>
+              {stepIndex >= 0 ? `${stepIndex + 1}/4` : ''}
+            </span>
+          </div>
         )}
 
         {/* Examples */}
         {stage === 'idle' && !error && (
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
+          <div style={{ marginBottom: 20 }}>
+            <p style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 8 }}>
               Try an example
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {EXAMPLES.map((ex, i) => (
-                <button key={i} onClick={() => setIntent(ex)} className="btn-ghost" style={{ padding: '11px 16px', fontSize: 13, textAlign: 'left', borderRadius: 10 }}>
-                  {ex}
+                <button key={i} onClick={() => setIntent(ex)} className="btn-example">
+                  <span>{ex}</span>
+                  <span className="btn-example-arrow">↗</span>
                 </button>
               ))}
             </div>
@@ -572,7 +582,25 @@ export default function Home() {
 
         {/* ── RESULT CARDS ── */}
         {result && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+            {/* Success banner */}
+            {visibleCards.length === 4 && (
+              <div className="animate-fade-in" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)',
+                borderRadius: 12, padding: '12px 16px', marginBottom: 4,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 14 }}>✓</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#10b981' }}>Payment complete</span>
+                </div>
+                {finalityMs !== null && (
+                  <span style={{ fontSize: 11, color: '#52525b', fontFamily: 'var(--font-geist-mono,monospace)' }}>
+                    {finalityMs}s end-to-end
+                  </span>
+                )}
+              </div>
+            )}
             {([
               {
                 idx: 0, label: 'Intent Parsed', service: 'Google Gemini', accent: '#0ea5e9',
@@ -721,7 +749,7 @@ export default function Home() {
             <p style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
               Recent Automated Payments
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {history.map((entry, i) => (
                 <a
                   key={i}
@@ -765,29 +793,36 @@ export default function Home() {
           <div style={{ flex: 1, height: 1, background: '#18181b' }} />
         </div>
 
-        <div className="hiw-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
+        <div className="hiw-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
           {[
             {
               n: '01', title: 'You type anything.',
               desc: 'Plain language. A name, an amount, a reason. No wallet addresses, no chain selection, no token research.',
               sub: 'Google Gemini 2.0 Flash',
+              accent: '#0ea5e9',
             },
             {
               n: '02', title: 'FlowPay routes it.',
               desc: 'LI.FI Composer builds an atomic cross-chain flow — all steps in one transaction. If anything fails, the whole flow reverts.',
               sub: 'LI.FI Composer SDK',
+              accent: '#FF6B1A',
             },
             {
               n: '03', title: 'Hedera confirms it.',
               desc: 'Finality in under 3 seconds. Every payment permanently recorded on a public audit trail. No Solidity required.',
               sub: 'Hedera HCS + HBAR',
+              accent: '#10b981',
             },
-          ].map(({ n, title, desc, sub }) => (
-            <div key={n} style={{ padding: '36px 30px', background: '#09090b', borderRadius: 4, border: '1px solid #18181b' }}>
-              <div style={{ fontSize: 12, color: '#3f3f46', fontWeight: 600, fontFamily: 'var(--font-geist-mono,monospace)', marginBottom: 28, letterSpacing: '0.2px' }}>{n}</div>
-              <h3 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 12, lineHeight: 1.2, color: '#fafafa' }}>{title}</h3>
+          ].map(({ n, title, desc, sub, accent }) => (
+            <div key={n} style={{
+              padding: '32px 28px', background: '#09090b', borderRadius: 14,
+              border: '1px solid #27272a',
+              borderTop: `2px solid ${accent}`,
+            }}>
+              <div style={{ fontSize: 11, color: '#3f3f46', fontWeight: 700, fontFamily: 'var(--font-geist-mono,monospace)', marginBottom: 24, letterSpacing: '0.5px' }}>{n}</div>
+              <h3 style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.4px', marginBottom: 10, lineHeight: 1.25, color: '#fafafa' }}>{title}</h3>
               <p style={{ fontSize: 14, color: '#71717a', lineHeight: 1.65, marginBottom: 20 }}>{desc}</p>
-              <span style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.3px' }}>{sub}</span>
+              <span style={{ fontSize: 10, color: '#52525b', fontWeight: 600, letterSpacing: '0.3px' }}>{sub}</span>
             </div>
           ))}
         </div>
