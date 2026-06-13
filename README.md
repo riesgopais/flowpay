@@ -1,115 +1,128 @@
-# FlowPay
+# ⚡ FlowPay | Intent-Based Settlement Engine
 
-**Intent-based cross-chain payments in plain language.**
+**Cross-chain payments in plain language. No wallets. No bridges. No complexity.**
 
-> Type what you want to pay. FlowPay routes, executes, and settles — across any chain, in under 10 seconds, at $0.001 per transaction.
+> Type what you want to pay. FlowPay routes, executes, and settles across any chain — in under 10 seconds, with a full audit trail on Hedera.
 
-**Live demo:** https://flowpay-delta.vercel.app  
-**Built at:** ETHGlobal New York 2026 (June 12–14) — solo project
-
----
-
-## The One-Line Pitch
-
-FlowPay collapses 5+ blockchain steps (pick chain → pick token → find address → approve → send) into a single text input powered by Google Gemini.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-flowpay--delta.vercel.app-FF6B1A?style=for-the-badge)](https://flowpay-delta.vercel.app)
+[![ETHGlobal NYC 2026](https://img.shields.io/badge/ETHGlobal-NYC%202026-000?style=for-the-badge&logo=ethereum)](https://ethglobal.com)
+[![Hedera](https://img.shields.io/badge/Hedera-HCS%20%2B%20HBAR-8A2BE2?style=for-the-badge)](https://hedera.com)
+[![LI.FI](https://img.shields.io/badge/LI.FI-Composer%20SDK-00C2FF?style=for-the-badge)](https://li.fi)
+[![Google Gemini](https://img.shields.io/badge/Google-Gemini%202.0%20Flash-4285F4?style=for-the-badge&logo=google)](https://ai.google.dev)
 
 ---
 
-## How It Works End-to-End
+## The Problem
+
+Sending crypto today requires 5+ steps: pick the right chain, pick the right token, find the wallet address, approve the token contract, sign the transaction. For every payment. Every time.
+
+**FlowPay collapses all of this into a single sentence.**
 
 ```
-User types:
 "Send 200 USDC from María to Juan in Mexico for rent"
-                  │
-                  ▼
-         POST /api/parse  (preview step)
-         Google Gemini 2.0 Flash
-         Structured Output → PaymentIntent JSON
-         Name resolver → real testnet address
-         Warnings generated for AI assumptions
-                  │
-                  ▼
-      Confirmation card shown to user
-      (human summary + chips + amber warnings if AI assumed defaults)
-                  │
-          user clicks "Confirm & Execute"
-                  │
-                  ▼
-         POST /api/pay-stream  (SSE)
-         ┌─ Step 0: Gemini re-validates intent
-         ├─ Step 1: LI.FI Composer builds atomic EVM flow
-         ├─ Step 2: Hedera HBAR settlement executes
-         └─ Step 3: Hedera HCS writes audit record (SUCCESS/FAILED)
-                  │
-                  ▼
-         Frontend reads SSE events in real time
-         Pipeline nodes light up as each step completes
-         Receipt shows Hashscan links for HCS topic + tx
 ```
 
-### Two-Step UX — intentional
-
-The flow is **parse-first, execute-second**. The AI acts as a structured parser; it never executes directly on-chain. The user sees the parsed intent (summary + chips) before any blockchain call. The user is the final firewall. This is the correct security model for financial AI.
+That's it. FlowPay handles the rest — parsing, routing, settlement, and a permanent on-chain audit record.
 
 ---
 
-## Architecture
+## Live Architecture
 
-### AI Layer — Google Gemini 2.0 Flash
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     User Intent (NL text)                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │  POST /api/parse
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│           STEP 1 — Google Gemini 2.0 Flash                  │
+│   Structured Output → PaymentIntent JSON                    │
+│   Name resolution (14-entry mock registry)                  │
+│   Warnings generated for AI-assumed defaults                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │  Confirmation card shown to user
+                            │  (human summary + chips + warnings)
+                            │  user clicks "Confirm & Execute"
+                            │  POST /api/pay-stream (SSE)
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│           STEP 2 — LI.FI Composer SDK                       │
+│   Builds atomic cross-chain EVM flow                        │
+│   Same token → direct transfer                              │
+│   Different tokens → swap via aggregator                    │
+│   Returns compiled transactionRequest (wallet-ready)        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │  on LI.FI error → HCS: ROUTING_FAILED
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│           STEP 3 — Hedera HBAR Settlement                   │
+│   Executes native HBAR transfer from operator account       │
+│   0.001 HBAR (EVM tokens) | up to 1 HBAR (HBAR token)      │
+│   Returns Hashscan receipt URL                              │
+└───────────────────────────┬─────────────────────────────────┘
+                            │  on payment error → HCS: PAYMENT_FAILED
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│           STEP 4 — Hedera HCS Audit Record                  │
+│   Topic: 0.0.9217982 (public, immutable)                   │
+│   Writes SUCCESS only after payment confirms                │
+│   { intent, amount, tokens, recipient, status, timestamp }  │
+└─────────────────────────────────────────────────────────────┘
+                            │  SSE: {type:'done', data}
+                            ▼
+                    Receipt with Hashscan links
+```
 
-`lib/parser.ts`
+**All 4 steps emit real-time SSE events.** Pipeline nodes on the UI light up strictly on server confirmation — no fake timeouts, no CSS timers.
 
-- Uses `responseMimeType: 'application/json'` + `responseSchema` (Structured Outputs — no prompt engineering for JSON format)
-- Returns a strict `PaymentIntent` typed object: `amount`, `fromToken`, `toToken`, `recipientAddress`, `hederaRecipient`, `senderName`, `recipientName`, `memo`, `humanSummary`, `error`
-- **Single-token rule:** if user says "Pay 0.05 ETH", both `fromToken` and `toToken` = ETH (no invented swap)
-- Unsupported tokens (BTC, SOL, XRP, ADA, DOT, AVAX, BNB) set `error` field → backend returns 422 before any chain call
-- Fallback regex parser when `GOOGLE_API_KEY` is absent (for local dev without keys)
+---
 
-### Name Resolution Layer
+## Key Design Decisions
 
-`lib/resolver.ts`
+### Parse-first, execute-second
+The AI interprets the intent and shows a confirmation card before any blockchain call. The user sees the parsed summary, token chips, and any amber warnings before clicking "Confirm & Execute." The user is the final firewall. This is the correct security model for financial AI.
 
-- 14-name registry (ES + EN): Sofia, Carlos, Juan, María, Pablo, Lucas, Lucía, Ana, Valentina, Alice, Bob, Charlie — each maps to `{ evm: '0x...', hedera: '0.0.X' | null }`
-- Called in both `/api/parse` (preview) and `/api/pay-stream` (execution) — consistent resolution
-- Unknown name + no explicit address in intent → 422 with actionable message: *"[Name] is not in the FlowPay registry. Please include a wallet address (0x…) or Hedera account (0.0.X)."*
-- Production path: swap registry for `viem.getEnsAddress()` (ENS) + Hedera Name Service lookup
+### HCS Atomicity enforced
+`SUCCESS` is only written to Hedera Consensus Service after the HBAR payment confirms on-chain. Failures at LI.FI → `ROUTING_FAILED`. Failures at HBAR → `PAYMENT_FAILED`. No silent false-positives on the audit trail.
 
-### Cross-Chain Routing — LI.FI Composer SDK
+### Single-token rule
+If the user says "Pay 0.05 ETH," both `fromToken` and `toToken` are set to ETH. Gemini never invents a swap when the user only names one token.
 
-`lib/lifi.ts`
+### Unknown name → 422, not silent fallback
+If a name appears in the intent (e.g., "Roberto") but isn't in the registry and no explicit address is present, the API returns a 422 with a clear message instead of silently routing to a demo address.
 
-- Staging endpoint: `ethglobal-composer.li.quest` (ETHGlobal-specific)
-- Same token → direct transfer step. Different tokens → `lifi.swap()` via aggregator
-- Token addresses: ETH/WETH/USDC/USDT/DAI/WBTC on Ethereum mainnet
-- `toWei()` handles decimal conversion: USDC/USDT = 6 decimals, ETH/WETH/DAI = 18, WBTC = 8
-- Amounts capped at demo limits (1 token max, 0.01 WBTC) for testnet safety
-- Compile result includes `transactionRequest` — if wallet connected, "Sign & Execute on-chain" button appears in the receipt
+---
 
-### Settlement + Audit — Hedera
+## Resilience & Robustness
 
-`lib/hedera.ts`
+| Scenario | Behavior |
+|----------|----------|
+| `GOOGLE_API_KEY` absent | Fallback regex parser activates automatically |
+| Amount not specified | Gemini assumes 0.01 — amber warning shown |
+| Token not specified | Gemini assumes USDC — amber warning shown |
+| Unsupported token (BTC, SOL, XRP…) | 422 before any chain call |
+| Amount ≤ 0 or NaN | 422 with actionable message |
+| Unknown name, no explicit address | 422 — user told to include wallet address |
+| LI.FI failure | HCS records `ROUTING_FAILED`, 500 returned |
+| HBAR payment failure | HCS records `PAYMENT_FAILED`, 500 returned |
+| Network congestion (>25s per step) | AbortController fires → "Network congestion detected" — user can retry immediately |
+| Empty intent | 400 |
 
-**HCS (Hedera Consensus Service):**
-- Topic: `0.0.9217982` — viewable at [hashscan.io/testnet/topic/0.0.9217982](https://hashscan.io/testnet/topic/0.0.9217982)
-- Records: `{ intent, amount, fromToken, toToken, recipient, memo, status, timestamp, app: 'FlowPay' }`
-- Statuses: `SUCCESS` | `ROUTING_FAILED` | `PAYMENT_FAILED`
-- **Atomicity enforced:** HCS only writes `SUCCESS` after HBAR payment confirms. On LI.FI failure → `ROUTING_FAILED`. On HBAR failure → `PAYMENT_FAILED`. No silent false-positives.
+---
 
-**HBAR Transfer:**
-- Executes on-chain from operator account (`0.0.9185784`) to recipient
-- `0.001 HBAR` for EVM token payments (settlement signal), up to `1 HBAR` when token is HBAR
-- Receipt viewable on Hashscan testnet
+## Sponsor Tracks
 
-### SSE Streaming Pipeline
+### Hedera — AI & Agentic Payments
+FlowPay uses an AI agent (Gemini) to autonomously route and execute HBAR transfers, with the full audit trail recorded to HCS. The agent interprets free-form language, resolves names to addresses, determines amounts and tokens, and executes the settlement — zero manual steps.
 
-`app/api/pay-stream/route.ts`
+### Hedera — No Solidity Allowed
+Zero Solidity in this project. All Hedera interaction goes through `@hashgraph/sdk` (native Node.js SDK): `TransferTransaction` for HBAR, `TopicMessageSubmitTransaction` for HCS. No EVM bytecode, no compiled contracts.
 
-- `POST /api/pay-stream` — returns `text/event-stream`
-- Emits `{ type: 'step', index: N }` as each backend step actually completes (not faked)
-- Frontend pipeline nodes light up **strictly on server events** — no `setTimeout` or CSS timers
-- On error: `{ type: 'error', error: string, status: number }`
-- On completion: `{ type: 'done', data: PaymentResult }`
-- **25-second per-step watchdog** in the frontend via `AbortController`. Resets on each received event. On timeout: "Network congestion detected" message, stage resets to idle for immediate retry.
+### LI.FI — Agentic Workflows
+LI.FI Composer SDK acts as the atomic execution layer for AI-driven payment flows. The AI parses intent; LI.FI handles the cross-chain route construction, token swap aggregation, and compiled transaction output. One `buildCrossChainPaymentFlow()` call covers the full EVM layer.
+
+### Google Cloud — Gemini Integration
+Gemini 2.0 Flash with Structured Outputs (`responseMimeType: 'application/json'` + `responseSchema`) is the NL parser core. No prompt engineering for JSON formatting — the model outputs a fully typed `PaymentIntent` object directly. Includes few-shot examples for Spanish/English name handling and multi-token detection.
 
 ---
 
@@ -117,14 +130,14 @@ The flow is **parse-first, execute-second**. The AI acts as a structured parser;
 
 ### `POST /api/parse`
 
-Parse a natural language payment intent. Used for the preview/confirmation step.
+Parse a natural language intent. Returns preview for confirmation.
 
 **Request:**
 ```json
 { "intent": "Send 100 USDC to Sofia for rent" }
 ```
 
-**Response (success):**
+**Response:**
 ```json
 {
   "amount": 100,
@@ -132,23 +145,21 @@ Parse a natural language payment intent. Used for the preview/confirmation step.
   "toToken": "USDC",
   "recipientAddress": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
   "hederaRecipient": "0.0.98",
-  "senderName": null,
   "recipientName": "Sofia",
   "memo": "rent",
   "humanSummary": "Send 100 USDC to Sofia for rent",
-  "error": null,
   "warnings": ["Sending to Sofia's registered testnet address"],
   "resolvedAddressLabel": "Resolved from demo registry"
 }
 ```
 
-**Error responses:**
-- `400` — empty or missing `intent`
-- `200` with `error` field set — unsupported token (BTC, SOL, XRP, etc.)
+**Errors:** `400` empty intent · `200` with `error` field for unsupported tokens
+
+---
 
 ### `POST /api/pay-stream`
 
-Execute a payment. Returns Server-Sent Events.
+Execute. Returns Server-Sent Events.
 
 **Request:**
 ```json
@@ -157,30 +168,51 @@ Execute a payment. Returns Server-Sent Events.
 
 **SSE stream:**
 ```
-data: {"type":"step","index":0}        ← Gemini parsing
-data: {"type":"step","index":1}        ← LI.FI routing
-data: {"type":"step","index":2}        ← Hedera HBAR settlement
-data: {"type":"step","index":3}        ← HCS audit record
+data: {"type":"step","index":0}         ← Gemini parsing
+data: {"type":"step","index":1}         ← LI.FI routing
+data: {"type":"step","index":2}         ← Hedera HBAR settlement
+data: {"type":"step","index":3}         ← HCS audit record
 
 data: {"type":"done","data":{
   "success": true,
-  "parsed": { "humanSummary": "...", "amount": 100, ... },
-  "lifi":   { "flowBuilt": true, "steps": [...], "compiled": true, ... },
-  "hcs":    { "topicId": "0.0.9217982", "sequenceNumber": "42", "explorerUrl": "..." },
-  "payment":{ "transactionId": "0.0.9185784@...", "amount": "0.001 HBAR", "explorerUrl": "..." }
+  "parsed":  { "humanSummary": "...", "amount": 100, ... },
+  "lifi":    { "flowBuilt": true, "steps": [...], "compiled": true },
+  "hcs":     { "topicId": "0.0.9217982", "sequenceNumber": "42", "explorerUrl": "..." },
+  "payment": { "transactionId": "0.0.9185784@...", "amount": "0.001 HBAR", "explorerUrl": "..." }
 }}
 
-data: {"type":"error","error":"BTC is not supported...","status":422}
+data: {"type":"error","error":"BTC is not supported","status":422}
 ```
 
-**Error events:**
-- `status: 400` — empty intent
-- `status: 422` — unsupported token, invalid amount, or unresolved name without explicit address
-- `status: 500` — LI.FI or Hedera failure (HCS records the failure status)
+---
 
-### `POST /api/pay`
+## Supported Tokens
 
-Single-response (non-streaming) execution. Same validation logic as `pay-stream`. Used for programmatic/direct API access. The frontend uses `pay-stream`.
+| Token | Decimals | Notes |
+|-------|----------|-------|
+| ETH / WETH | 18 | |
+| USDC | 6 | |
+| USDT | 6 | |
+| DAI | 18 | |
+| WBTC | 8 | Capped at 0.01 in demo |
+| HBAR | — | Native Hedera, up to 1 HBAR |
+| MATIC / POL | 18 | |
+| BTC, SOL, XRP, ADA, DOT, AVAX, BNB | — | 422 — not supported |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| AI parser | Google Gemini 2.0 Flash · `@google/generative-ai` |
+| Cross-chain routing | LI.FI Composer SDK · `@lifi/composer-sdk` |
+| Settlement | Hedera HBAR transfer · `@hashgraph/sdk` |
+| Audit trail | Hedera Consensus Service · topic `0.0.9217982` |
+| Streaming | Server-Sent Events · Next.js App Router native |
+| Wallet connect | wagmi v2 + RainbowKit v2 |
+| Frontend | Next.js 16 (Turbopack) · Tailwind CSS v4 |
+| Deploy | Vercel |
 
 ---
 
@@ -191,16 +223,15 @@ flowpay/
 ├── app/
 │   ├── api/
 │   │   ├── parse/route.ts        # AI parse + name resolution + warnings
-│   │   ├── pay/route.ts          # Legacy single-response execution
+│   │   ├── pay/route.ts          # Single-response execution (non-streaming)
 │   │   └── pay-stream/route.ts   # SSE streaming execution (used by frontend)
-│   ├── docs/page.tsx             # Docs page
-│   ├── globals.css               # Design tokens + shimmer keyframe animation
+│   ├── globals.css               # Design tokens + shimmer keyframe
 │   ├── layout.tsx                # Providers wrapper
 │   ├── page.tsx                  # Main UI — Studio Dark design
 │   └── providers.tsx             # wagmi + RainbowKit config
 └── lib/
     ├── parser.ts                 # Gemini 2.0 Flash + fallback regex parser
-    ├── resolver.ts               # Name registry + ENS-ready resolve interface
+    ├── resolver.ts               # 14-name mock registry + ENS-ready interface
     ├── lifi.ts                   # LI.FI Composer SDK — atomic EVM flows
     └── hedera.ts                 # HCS audit trail + HBAR transfer
 ```
@@ -209,97 +240,66 @@ flowpay/
 
 ## Local Setup
 
-### Prerequisites
-
-- Node.js 20+
-- Google AI API key — [aistudio.google.com](https://aistudio.google.com) (free tier works)
-- Hedera Testnet account — [portal.hedera.com](https://portal.hedera.com)
-- LI.FI API key — [portal.li.fi](https://portal.li.fi)
-
-### Install
-
 ```bash
 git clone https://github.com/riesgopais/flowpay
 cd flowpay
 npm install
-```
-
-### Environment Variables
-
-```env
-# .env.local — never committed
-
-GOOGLE_API_KEY=your_gemini_key         # Gemini 2.0 Flash parser
-LIFI_API_KEY=your_lifi_key             # LI.FI Composer SDK
-HEDERA_ACCOUNT_ID=0.0.XXXXXX          # Operator account (pays fees)
-HEDERA_PRIVATE_KEY=0x...               # ECDSA private key for operator
-HEDERA_RECIPIENT_ID=0.0.98             # Default HBAR recipient (Hedera treasury for demo)
-HEDERA_TOPIC_ID=0.0.XXXXXX            # HCS topic — leave blank on first run, auto-created
-```
-
-> `ANTHROPIC_API_KEY` is no longer used. Parser migrated from Claude Haiku → Gemini 2.0 Flash.
-
-### Run
-
-```bash
+cp .env.example .env.local   # fill in your keys
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-If `GOOGLE_API_KEY` is absent, the fallback regex parser activates automatically.
+If `GOOGLE_API_KEY` is absent, the fallback regex parser activates automatically — useful for local dev without API keys.
+
+### Environment Variables
+
+See `.env.example` for the full list with descriptions. Required keys:
+
+```env
+GOOGLE_API_KEY=      # Gemini 2.0 Flash — aistudio.google.com (free tier works)
+HEDERA_ACCOUNT_ID=   # Testnet operator account — portal.hedera.com
+HEDERA_PRIVATE_KEY=  # ECDSA private key for operator (never commit)
+LIFI_API_KEY=        # LI.FI Composer — portal.li.fi
+```
 
 ---
 
-## Supported Tokens
-
-| Token | Status | Notes |
-|-------|--------|-------|
-| ETH / WETH | ✅ | |
-| USDC | ✅ | 6 decimals |
-| USDT | ✅ | 6 decimals |
-| DAI | ✅ | 18 decimals |
-| WBTC | ✅ | 8 decimals, capped at 0.01 in demo |
-| HBAR | ✅ | Native Hedera, up to 1 HBAR |
-| MATIC / POL | ✅ | |
-| BTC (native) | ❌ | Returns 422 |
-| SOL, XRP, ADA, DOT, AVAX, BNB, LUNA | ❌ | Returns 422 |
-
----
-
-## Known Limitations (v1 / hackathon scope)
+## Hackathon Limitations (v1)
 
 | Limitation | Production path |
 |-----------|----------------|
-| Name registry is 14 hardcoded names | ENS (`viem.getEnsAddress`) + Hedera Name Service |
-| LI.FI uses ETHGlobal staging endpoint | Production LI.FI Composer API key |
-| HBAR amount is symbolic (0.001) for EVM tokens | Per-token settlement in production |
+| 14-name hardcoded registry | ENS (`viem.getEnsAddress`) + Hedera Name Service |
+| LI.FI ETHGlobal staging endpoint | Production LI.FI Composer API |
+| HBAR amount is symbolic (0.001) for EVM tokens | Per-token settlement amounts |
 | No payment history | localStorage or Supabase |
-| No user auth — shared relayer account | ERC-4337 account abstraction with Paymasters |
-| Pipeline timing: 25s watchdog | Configurable per environment |
+| Shared relayer account | ERC-4337 account abstraction with Paymasters |
 
 ---
 
-## Sponsor Tracks
+## HCS Audit Trail
 
-| Sponsor | Track | Integration |
-|---------|-------|-------------|
-| **Hedera** | AI & Agentic Payments | AI agent executing HBAR transfers + HCS audit autonomously |
-| **Hedera** | No Solidity Allowed | HCS + HBAR via native `@hashgraph/sdk` — zero Solidity |
-| **LI.FI** | Agentic Workflows | LI.FI Composer SDK as atomic execution layer for AI-driven payments |
-| **Google** | Gemini integration | Gemini 2.0 Flash + Structured Outputs as NL parser |
+All payments are recorded permanently on Hedera Consensus Service.
+
+**Topic:** `0.0.9217982`  
+**Explorer:** [hashscan.io/testnet/topic/0.0.9217982](https://hashscan.io/testnet/topic/0.0.9217982)
+
+Each message contains:
+```json
+{
+  "app": "FlowPay",
+  "intent": "Send 100 USDC to Sofia for rent",
+  "amount": 100,
+  "fromToken": "USDC",
+  "toToken": "USDC",
+  "recipient": "0x742d35...",
+  "memo": "rent",
+  "status": "SUCCESS",
+  "timestamp": "2026-06-13T..."
+}
+```
 
 ---
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| AI parser | Google Gemini 2.0 Flash (`@google/generative-ai`) |
-| Cross-chain routing | LI.FI Composer SDK (`@lifi/composer-sdk`) |
-| Settlement | Hedera HBAR transfer (`@hashgraph/sdk`) |
-| Audit trail | Hedera Consensus Service HCS |
-| Streaming | Server-Sent Events (Next.js App Router native) |
-| Wallet connect | wagmi v2 + RainbowKit v2 |
-| Frontend | Next.js 16 (Turbopack) + Tailwind CSS v4 |
-| Deploy | Vercel |
+**Built solo at ETHGlobal NYC 2026 (June 12–14)**  
+Executed via FlowPay Relayer Account (Hedera Testnet) · LI.FI Composer Staging · Name resolution: demo registry
