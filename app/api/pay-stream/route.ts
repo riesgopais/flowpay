@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
         // Name resolution
         if (parsed.recipientName) {
-          const resolved = resolveRecipientName(parsed.recipientName);
+          const resolved = await resolveRecipientName(parsed.recipientName);
           if (resolved) {
             parsed.recipientAddress = resolved.evm;
             parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;

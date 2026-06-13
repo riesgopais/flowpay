@@ -24,17 +24,24 @@ export async function POST(request: Request) {
       warnings.push('Token not specified — defaulting to ETH');
     }
 
-    // Name resolution: override recipient address if name is in registry
+    // Name resolution: try registry first, then ENS
     let resolvedAddressLabel: string | null = null;
     if (parsed.recipientName) {
-      const resolved = resolveRecipientName(parsed.recipientName);
+      const resolved = await resolveRecipientName(parsed.recipientName);
       if (resolved) {
-        parsed.recipientAddress  = resolved.evm;
-        parsed.hederaRecipient   = resolved.hedera ?? parsed.hederaRecipient;
-        resolvedAddressLabel     = `Resolved from demo registry`;
-        warnings.push(`Sending to ${parsed.recipientName}'s registered testnet address`);
+        parsed.recipientAddress = resolved.evm;
+        parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;
+        if (resolved.source === 'ens') {
+          const ensName = parsed.recipientName.toLowerCase().includes('.')
+            ? parsed.recipientName
+            : `${parsed.recipientName}.eth`;
+          resolvedAddressLabel = `Resolved via ENS (${ensName})`;
+          warnings.push(`Sending to ${ensName} — resolved on Ethereum Name Service`);
+        } else {
+          resolvedAddressLabel = `Resolved from demo registry`;
+          warnings.push(`Sending to ${parsed.recipientName}'s registered testnet address`);
+        }
       } else if (!isKnownName(parsed.recipientName)) {
-        // Name given but not in registry and no explicit address
         const hasExplicitAddress = /0x[a-fA-F0-9]{40}/.test(intent) || /\b0\.\d+\.\d+\b/.test(intent);
         if (!hasExplicitAddress) {
           warnings.push(`"${parsed.recipientName}" has no registered address — using demo fallback`);

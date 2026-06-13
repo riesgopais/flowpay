@@ -25,9 +25,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Issue 1: resolve recipient name → real address
+    // Resolve recipient name → registry or ENS
     if (parsed.recipientName) {
-      const resolved = resolveRecipientName(parsed.recipientName);
+      const resolved = await resolveRecipientName(parsed.recipientName);
       if (resolved) {
         parsed.recipientAddress = resolved.evm;
         parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;
