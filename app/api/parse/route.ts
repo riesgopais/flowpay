@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { parsePaymentIntent } from '@/lib/claude';
+import { parsePaymentIntent } from '@/lib/parser';
 
 export async function POST(request: Request) {
   try {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { parsePaymentIntent } from '@/lib/claude';
+import { parsePaymentIntent } from '@/lib/parser';
 import { recordPaymentOnChain, executeHbarPayment } from '@/lib/hedera';
 import { buildCrossChainPaymentFlow } from '@/lib/lifi';
 
@@ -12,6 +12,12 @@ export async function POST(request: Request) {
     }
 
     const parsed = await parsePaymentIntent(intent);
+
+    // Abort if the parser detected an unsupported token or invalid intent
+    if (parsed.error) {
+      return NextResponse.json({ error: parsed.error }, { status: 422 });
+    }
+
     const lifi = await buildCrossChainPaymentFlow(
       parsed.recipientAddress,
       senderAddress,

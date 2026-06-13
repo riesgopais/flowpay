@@ -116,6 +116,7 @@ export default function Home() {
         body: JSON.stringify({ intent }),
       });
       const data = await res.json();
+      // data.error covers both HTTP errors and parser-detected invalid tokens
       if (data.error) { setError(data.error); setStage('idle'); return; }
       setPreview(data);
       setStage('confirming');
