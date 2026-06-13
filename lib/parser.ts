@@ -74,10 +74,18 @@ function fallbackParse(text: string): PaymentIntent {
   const amountMatch = text.match(/(\d+(?:\.\d+)?)\s*(usdc|usdt|eth|btc|hbar|dai|matic)?/i);
   const amount = amountMatch ? parseFloat(amountMatch[1]) : 0.01;
 
-  const tokenMatch = text.match(/\b(usdc|usdt|eth|weth|hbar|dai|matic|wbtc)\b/i);
-  const rawToken = tokenMatch ? tokenMatch[1].toUpperCase() : 'USDC';
-  const toToken = rawToken;
-  const fromToken = toToken === 'ETH' || toToken === 'WETH' ? 'USDC' : 'ETH';
+  // Bug 1 fix: collect ALL token mentions; if only one token, fromToken === toToken (no invented swap)
+  const allTokenMatches = [...text.matchAll(/\b(usdc|usdt|eth|weth|hbar|dai|matic|wbtc)\b/gi)];
+  const uniqueTokens = [...new Set(allTokenMatches.map(m => m[1].toUpperCase()))];
+  let fromToken: string;
+  let toToken: string;
+  if (uniqueTokens.length === 0) {
+    fromToken = 'ETH'; toToken = 'USDC';          // no token → default ETH→USDC
+  } else if (uniqueTokens.length === 1) {
+    fromToken = uniqueTokens[0]; toToken = uniqueTokens[0]; // single token → no swap
+  } else {
+    fromToken = uniqueTokens[0]; toToken = uniqueTokens[1]; // two tokens → explicit swap
+  }
 
   const evmMatch = text.match(/0x[a-fA-F0-9]{40}/);
   const recipientAddress = evmMatch ? evmMatch[0] : '0x742d35Cc6634C0532925a3b844Bc454e4438f44e';
@@ -85,11 +93,13 @@ function fallbackParse(text: string): PaymentIntent {
   const hederaMatch = text.match(/\b(0\.\d+\.\d+)\b/);
   const hederaRecipient = hederaMatch ? hederaMatch[1] : null;
 
-  const SKIP = new Set(['my', 'the', 'a', 'an', 'his', 'her', 'our', 'your', 'their']);
-  const fromMatch = text.match(/from\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
-  const toMatch   = text.match(/to\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
-  const senderName    = fromMatch && !SKIP.has(fromMatch[1].toLowerCase()) ? fromMatch[1] : null;
-  const recipientName = toMatch   && !SKIP.has(toMatch[1].toLowerCase())   ? toMatch[1]   : null;
+  // Bug 2 fix: detect names in English ("from X" / "to X") AND Spanish ("de X" / "a X" / "para X")
+  const SKIP = new Set(['my', 'the', 'a', 'an', 'his', 'her', 'our', 'your', 'their', 'mi', 'tu', 'su', 'el', 'la']);
+  const NAME = '[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+';
+  const senderMatch    = text.match(new RegExp(`(?:from|de)\\s+(${NAME})`, 'i'));
+  const recipientMatch = text.match(new RegExp(`(?:to|para|a)\\s+(${NAME})`, 'i'));
+  const senderName    = senderMatch    && !SKIP.has(senderMatch[1].toLowerCase())    ? senderMatch[1]    : null;
+  const recipientName = recipientMatch && !SKIP.has(recipientMatch[1].toLowerCase()) ? recipientMatch[1] : null;
 
   const memoWords = ['rent', 'alquiler', 'salary', 'salario', 'freelance', 'invoice', 'school', 'fees', 'family', 'work'];
   const memo = memoWords.find(k => lower.includes(k)) ?? 'payment';
@@ -100,7 +110,6 @@ function fallbackParse(text: string): PaymentIntent {
     ? `Send ${amount} ${toToken} from ${sender} to ${recipient} for ${memo}`
     : `Send ${amount} ${toToken} for ${memo}`;
 
-  // Check unsupported tokens in fallback too
   const unsupportedMatch = text.match(/\b(btc|bitcoin|sol|solana|xrp|ripple|ada|cardano|dot|polkadot|avax|avalanche|luna|bnb)\b/i);
   const error = unsupportedMatch
     ? `Token "${unsupportedMatch[1].toUpperCase()}" is not supported. FlowPay supports: ETH, USDC, USDT, DAI, WBTC, HBAR, MATIC.`
@@ -127,15 +136,40 @@ export async function parsePaymentIntent(text: string): Promise<PaymentIntent> {
     const prompt = `You are a cross-chain payment parser for FlowPay.
 
 Supported tokens: ETH, WETH, USDC, USDT, DAI, WBTC, HBAR, MATIC.
-Unsupported tokens include BTC (native), SOL, XRP, ADA, DOT, AVAX, BNB, LUNA, and any token not in the supported list.
+Unsupported: BTC (native Bitcoin), SOL, XRP, ADA, DOT, AVAX, BNB, LUNA — any token NOT in the supported list.
+
+## TOKEN RULES (critical — follow exactly)
+- If the user mentions ONE token only → set BOTH fromToken AND toToken to that same token. Do NOT invent a different fromToken.
+  Example: "Pay 0.05 ETH for work" → fromToken: "ETH", toToken: "ETH"
+  Example: "Send 200 USDC to Juan" → fromToken: "USDC", toToken: "USDC"
+- Only set DIFFERENT fromToken/toToken when the user EXPLICITLY wants to swap/exchange one token FOR another.
+  Example: "Swap 1 ETH for USDC" → fromToken: "ETH", toToken: "USDC"
+- If NO token is mentioned → fromToken: "ETH", toToken: "USDC" (default swap)
+
+## NAME EXTRACTION RULES (English and Spanish)
+Extract senderName and recipientName from these patterns:
+
+English:
+- "from [Name]" → senderName
+- "to [Name]" → recipientName
+
+Spanish (few-shot examples):
+- "Mandá 100 USDT de Carlos a Sofía para el alquiler" → senderName: "Carlos", recipientName: "Sofía"
+- "Enviá 50 ETH de Juan a María" → senderName: "Juan", recipientName: "María"
+- "Transferí 200 USDC de Pablo en Buenos Aires a Lucía en Colombia" → senderName: "Pablo", recipientName: "Lucía"
+- "de [Name]" → senderName (Spanish "from")
+- "a [Name]" → recipientName (Spanish "to") — only when followed by a proper noun (capitalized)
+- "para [Name]" → recipientName (Spanish "for/to")
+
+Only extract HUMAN NAMES. Ignore city names, country names, and common words.
+
+## ERROR RULES
+- Unsupported token mentioned → error: "Token X is not supported. FlowPay supports: ETH, USDC, USDT, DAI, WBTC, HBAR, MATIC."
+- Valid intent → error: null
 
 Parse this payment request: "${text}"
 
-Rules:
-- If the request mentions an unsupported token, set error to a clear message explaining which tokens are supported.
-- If no amount is mentioned and there's no reasonable default, set error.
-- If the intent is clear and valid, set error to null.
-- humanSummary must always be a complete sentence even if there's an error.`;
+humanSummary must always be a complete, natural sentence.`;
 
     const response = await model.generateContent(prompt);
     const raw = response.response.text();
