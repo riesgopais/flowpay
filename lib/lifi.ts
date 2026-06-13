@@ -13,7 +13,8 @@ export interface LiFiResult {
 }
 
 export async function buildCrossChainPaymentFlow(
-  recipientAddress: string
+  recipientAddress: string,
+  senderAddress?: string
 ): Promise<LiFiResult> {
   const apiKey = process.env.LIFI_API_KEY;
   if (!apiKey) {
@@ -39,7 +40,7 @@ export async function buildCrossChainPaymentFlow(
     const steps = ['Swap WETH → USDC via LI.FI aggregator (Ethereum Mainnet)'];
 
     try {
-      const signer = (recipientAddress || DEMO_SIGNER) as `0x${string}`;
+      const signer = (senderAddress || DEMO_SIGNER) as `0x${string}`;
       const result = await builder.compile({
         signer,
         inputs: {

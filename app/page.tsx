@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount } from 'wagmi';
 
 interface PaymentResult {
   success: boolean;
@@ -74,6 +76,7 @@ const STATS = [
 ];
 
 export default function Home() {
+  const { address: walletAddress } = useAccount();
   const [intent, setIntent]             = useState('');
   const [loading, setLoading]           = useState(false);
   const [stepIndex, setStepIndex]       = useState(-1);
@@ -95,7 +98,7 @@ export default function Home() {
     const fetchPromise = fetch('/api/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intent }),
+      body: JSON.stringify({ intent, senderAddress: walletAddress }),
     }).then(r => r.json());
 
     for (let i = 0; i < 4; i++) {
@@ -147,10 +150,14 @@ export default function Home() {
           <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.3px' }}>
             Flow<span style={{ color: '#FF6B1A' }}>Pay</span>
           </span>
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <Link href="/docs"  className="nav-link" style={{ fontSize: 13 }}>Docs</Link>
-            <Link href="/brand" className="nav-link" style={{ fontSize: 13 }}>Brand</Link>
             <a href="https://github.com/riesgopais/flowpay" target="_blank" rel="noopener noreferrer" className="nav-link" style={{ fontSize: 13 }}>GitHub</a>
+            <ConnectButton
+              accountStatus="avatar"
+              chainStatus="icon"
+              showBalance={false}
+            />
           </nav>
         </div>
       </header>

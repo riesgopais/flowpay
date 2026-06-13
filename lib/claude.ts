@@ -5,6 +5,7 @@ export interface PaymentIntent {
   fromToken: string;
   toToken: string;
   recipientAddress: string;
+  hederaRecipient: string | null;
   senderName: string | null;
   recipientName: string | null;
   memo: string;
@@ -24,6 +25,9 @@ function fallbackParse(text: string): PaymentIntent {
   const evmMatch = text.match(/0x[a-fA-F0-9]{40}/);
   const recipientAddress = evmMatch ? evmMatch[0] : '0x742d35Cc6634C0532925a3b844Bc454e4438f44e';
 
+  const hederaMatch = text.match(/\b(0\.\d+\.\d+)\b/);
+  const hederaRecipient = hederaMatch ? hederaMatch[1] : null;
+
   const SKIP_WORDS = new Set(['my', 'the', 'a', 'an', 'his', 'her', 'our', 'your', 'their']);
   const fromMatch = text.match(/from\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
   const toMatch = text.match(/to\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/i);
@@ -39,7 +43,7 @@ function fallbackParse(text: string): PaymentIntent {
     ? `Send ${amount} ${toToken} from ${sender} to ${recipient} for ${memo}`
     : `Send ${amount} ${toToken} for ${memo}`;
 
-  return { amount, fromToken, toToken, recipientAddress, senderName, recipientName, memo, humanSummary };
+  return { amount, fromToken, toToken, recipientAddress, hederaRecipient, senderName, recipientName, memo, humanSummary };
 }
 
 export async function parsePaymentIntent(text: string): Promise<PaymentIntent> {
@@ -58,7 +62,8 @@ export async function parsePaymentIntent(text: string): Promise<PaymentIntent> {
 - amount: number (default 0.01 if unclear)
 - fromToken: string (default "ETH")
 - toToken: string (default "USDC")
-- recipientAddress: string (EVM address if present, else "0x742d35Cc6634C0532925a3b844Bc454e4438f44e")
+- recipientAddress: string (EVM 0x address if present, else "0x742d35Cc6634C0532925a3b844Bc454e4438f44e")
+- hederaRecipient: string | null (Hedera account ID like "0.0.12345" if present, else null)
 - senderName: string | null
 - recipientName: string | null
 - memo: string (purpose of payment)

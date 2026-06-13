@@ -81,14 +81,23 @@ export async function recordPaymentOnChain(data: object): Promise<HCSResult> {
   };
 }
 
-export async function executeHbarPayment(memo: string): Promise<PaymentResult> {
+export async function executeHbarPayment(
+  memo: string,
+  options?: { recipient?: string | null; amount?: number; token?: string }
+): Promise<PaymentResult> {
   const client = getClient();
   const operatorId = process.env.HEDERA_ACCOUNT_ID!;
-  const recipientId = process.env.HEDERA_RECIPIENT_ID || '0.0.98';
+
+  // Use parsed recipient if it's a valid Hedera account ID, else fall back to demo account
+  const recipientId = options?.recipient ?? process.env.HEDERA_RECIPIENT_ID ?? '0.0.98';
+
+  // If the user is sending HBAR, use the parsed amount (capped at 1 HBAR for testnet safety)
+  const isHbar = options?.token?.toUpperCase() === 'HBAR';
+  const hbarAmount = isHbar ? Math.min(options!.amount!, 1) : 0.001;
 
   const txResponse = await new TransferTransaction()
-    .addHbarTransfer(AccountId.fromString(operatorId), new Hbar(-0.001))
-    .addHbarTransfer(AccountId.fromString(recipientId), new Hbar(0.001))
+    .addHbarTransfer(AccountId.fromString(operatorId), new Hbar(-hbarAmount))
+    .addHbarTransfer(AccountId.fromString(recipientId), new Hbar(hbarAmount))
     .setTransactionMemo(memo.substring(0, 100))
     .execute(client);
 
@@ -97,7 +106,7 @@ export async function executeHbarPayment(memo: string): Promise<PaymentResult> {
 
   return {
     transactionId: txId,
-    amount: '0.001 HBAR',
+    amount: `${hbarAmount} HBAR`,
     explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
   };
 }

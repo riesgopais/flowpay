@@ -5,14 +5,14 @@ import { buildCrossChainPaymentFlow } from '@/lib/lifi';
 
 export async function POST(request: Request) {
   try {
-    const { intent } = await request.json();
+    const { intent, senderAddress } = await request.json();
 
     if (!intent || typeof intent !== 'string') {
       return NextResponse.json({ error: 'Intent is required' }, { status: 400 });
     }
 
     const parsed = await parsePaymentIntent(intent);
-    const lifi = await buildCrossChainPaymentFlow(parsed.recipientAddress);
+    const lifi = await buildCrossChainPaymentFlow(parsed.recipientAddress, senderAddress);
     const hcs = await recordPaymentOnChain({
       intent: parsed.humanSummary,
       amount: parsed.amount,
@@ -21,7 +21,11 @@ export async function POST(request: Request) {
       recipient: parsed.recipientAddress,
       memo: parsed.memo,
     });
-    const payment = await executeHbarPayment(parsed.memo || parsed.humanSummary);
+    const payment = await executeHbarPayment(parsed.memo || parsed.humanSummary, {
+      recipient: parsed.hederaRecipient,
+      amount: parsed.amount,
+      token: parsed.toToken,
+    });
 
     return NextResponse.json({ success: true, parsed, lifi, hcs, payment });
   } catch (err) {
