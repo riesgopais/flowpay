@@ -58,6 +58,7 @@ interface ParsedPreview {
   recipientAddress: string;
   warnings?: string[];
   resolvedAddressLabel?: string | null;
+  _parsedBy?: 'keyword' | 'gemini' | 'fallback';
 }
 
 const PIPELINE = ['Input', 'Gemini', 'LI.FI', 'Hedera'];
@@ -531,9 +532,28 @@ export default function Home() {
             padding: '20px 22px',
             marginBottom: 16,
           }}>
-            <p style={{ fontSize: 10, color: '#52525b', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
-              FlowPay understood
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <p style={{ fontSize: 10, color: '#52525b', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', margin: 0 }}>
+                FlowPay understood
+              </p>
+              {preview._parsedBy === 'keyword' ? (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, color: '#10b981',
+                  background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+                  borderRadius: 980, padding: '2px 8px', letterSpacing: '0.3px',
+                }}>
+                  ⚡ instant
+                </span>
+              ) : (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: '#52525b',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid #1c1c1e',
+                  borderRadius: 980, padding: '2px 8px', letterSpacing: '0.3px',
+                }}>
+                  AI-assisted
+                </span>
+              )}
+            </div>
             <p style={{ fontSize: 15, fontWeight: 600, color: '#fafafa', marginBottom: 14, lineHeight: 1.45 }}>
               {preview.humanSummary}
             </p>

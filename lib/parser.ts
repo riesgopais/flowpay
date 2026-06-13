@@ -1,20 +1,12 @@
 import { GoogleGenerativeAI, SchemaType, type Schema } from '@google/generative-ai';
+import { parseWithKeywords } from './keyword-parser';
+
+// Re-export so existing imports from '@/lib/parser' keep working
+export type { PaymentIntent } from './keyword-parser';
+import type { PaymentIntent } from './keyword-parser';
 
 // Tokens that FlowPay can actually route
 const SUPPORTED_TOKENS = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'HBAR', 'MATIC', 'POL']);
-
-export interface PaymentIntent {
-  amount: number;
-  fromToken: string;
-  toToken: string;
-  recipientAddress: string;
-  hederaRecipient: string | null;
-  senderName: string | null;
-  recipientName: string | null;
-  memo: string;
-  humanSummary: string;
-  error: string | null;
-}
 
 // Strict JSON schema for Gemini Structured Outputs
 const PAYMENT_SCHEMA: Schema = {
@@ -74,17 +66,16 @@ function fallbackParse(text: string): PaymentIntent {
   const amountMatch = text.match(/(\d+(?:\.\d+)?)\s*(usdc|usdt|eth|btc|hbar|dai|matic)?/i);
   const amount = amountMatch ? parseFloat(amountMatch[1]) : 0.01;
 
-  // Bug 1 fix: collect ALL token mentions; if only one token, fromToken === toToken (no invented swap)
   const allTokenMatches = [...text.matchAll(/\b(usdc|usdt|eth|weth|hbar|dai|matic|wbtc)\b/gi)];
   const uniqueTokens = [...new Set(allTokenMatches.map(m => m[1].toUpperCase()))];
   let fromToken: string;
   let toToken: string;
   if (uniqueTokens.length === 0) {
-    fromToken = 'ETH'; toToken = 'USDC';          // no token → default ETH→USDC
+    fromToken = 'ETH'; toToken = 'USDC';
   } else if (uniqueTokens.length === 1) {
-    fromToken = uniqueTokens[0]; toToken = uniqueTokens[0]; // single token → no swap
+    fromToken = uniqueTokens[0]; toToken = uniqueTokens[0];
   } else {
-    fromToken = uniqueTokens[0]; toToken = uniqueTokens[1]; // two tokens → explicit swap
+    fromToken = uniqueTokens[0]; toToken = uniqueTokens[1];
   }
 
   const evmMatch = text.match(/0x[a-fA-F0-9]{40}/);
@@ -93,7 +84,6 @@ function fallbackParse(text: string): PaymentIntent {
   const hederaMatch = text.match(/\b(0\.\d+\.\d+)\b/);
   const hederaRecipient = hederaMatch ? hederaMatch[1] : null;
 
-  // Bug 2 fix: detect names in English ("from X" / "to X") AND Spanish ("de X" / "a X" / "para X")
   const SKIP = new Set(['my', 'the', 'a', 'an', 'his', 'her', 'our', 'your', 'their', 'mi', 'tu', 'su', 'el', 'la']);
   const NAME = '[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+';
   const senderMatch    = text.match(new RegExp(`(?:from|de)\\s+(${NAME})`, 'i'));
@@ -115,12 +105,19 @@ function fallbackParse(text: string): PaymentIntent {
     ? `Token "${unsupportedMatch[1].toUpperCase()}" is not supported. FlowPay supports: ETH, USDC, USDT, DAI, WBTC, HBAR, MATIC.`
     : null;
 
-  return { amount, fromToken, toToken, recipientAddress, hederaRecipient, senderName, recipientName, memo, humanSummary, error };
+  return { amount, fromToken, toToken, recipientAddress, hederaRecipient, senderName, recipientName, memo, humanSummary, error, _parsedBy: 'fallback' };
 }
 
 export async function parsePaymentIntent(text: string): Promise<PaymentIntent> {
-  const apiKey = process.env.GOOGLE_API_KEY;
+  // ── 1. Keyword fast path ───────────────────────────────────────────────────
+  // For clear intents (explicit amount + token + known recipient), skip Gemini entirely.
+  const kw = parseWithKeywords(text);
+  if (kw.confidence === 'high') {
+    return kw.result;
+  }
 
+  // ── 2. Gemini deep parse ──────────────────────────────────────────────────
+  const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return fallbackParse(text);
 
   try {
@@ -180,6 +177,7 @@ humanSummary must always be a complete, natural sentence.`;
     parsed.senderName      = parsed.senderName      || null;
     parsed.recipientName   = parsed.recipientName   || null;
     parsed.error           = parsed.error           || null;
+    parsed._parsedBy       = 'gemini';
 
     // Validate tokens even if Gemini didn't catch it
     const tokenToCheck = parsed.toToken?.toUpperCase();
