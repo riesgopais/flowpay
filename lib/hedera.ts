@@ -64,12 +64,16 @@ export async function recordPaymentOnChain(
   const client = getClient();
   const topicId = await getTopicId();
 
-  const message = JSON.stringify({
+  const fullMessage = JSON.stringify({
     ...data,
     status,
     timestamp: new Date().toISOString(),
     app: 'FlowPay',
   });
+  // HCS messages are capped at 1024 bytes; truncate the memo/intent fields if needed
+  const message = fullMessage.length > 1000
+    ? JSON.stringify({ status, timestamp: new Date().toISOString(), app: 'FlowPay', truncated: true })
+    : fullMessage;
 
   const txResponse = await new TopicMessageSubmitTransaction()
     .setTopicId(TopicId.fromString(topicId))

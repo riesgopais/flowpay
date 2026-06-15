@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSendTransaction } from 'wagmi';
@@ -97,7 +97,12 @@ export default function Home() {
   const { address: walletAddress } = useAccount();
   const { sendTransaction, isPending: isSigning, data: txHash } = useSendTransaction();
 
-  const [intent, setIntent]             = useState('');
+  // Lazy initializers read browser APIs synchronously on first render — no extra re-render
+  const [intent, setIntent] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const param = new URLSearchParams(window.location.search).get('intent');
+    return param ? decodeURIComponent(param) : '';
+  });
   const [stage, setStage]               = useState<'idle' | 'previewing' | 'confirming' | 'executing' | 'done'>('idle');
   const [preview, setPreview]           = useState<ParsedPreview | null>(null);
   const [loading, setLoading]           = useState(false);
@@ -109,20 +114,13 @@ export default function Home() {
   const [manualAddress, setManualAddress] = useState('');
   const [copiedKey, setCopiedKey]       = useState<string | null>(null);
   const [finalityMs, setFinalityMs]     = useState<number | null>(null);
-  const [history, setHistory]           = useState<HistoryEntry[]>([]);
-
-  useEffect(() => {
-    // Load ?intent= param from URL
-    const params = new URLSearchParams(window.location.search);
-    const urlIntent = params.get('intent');
-    if (urlIntent) setIntent(decodeURIComponent(urlIntent));
-
-    // Load persisted history from localStorage
+  const [history, setHistory]           = useState<HistoryEntry[]>(() => {
+    if (typeof window === 'undefined') return [];
     try {
       const stored = localStorage.getItem('flowpay_history');
-      if (stored) setHistory(JSON.parse(stored) as HistoryEntry[]);
-    } catch {}
-  }, []);
+      return stored ? (JSON.parse(stored) as HistoryEntry[]) : [];
+    } catch { return []; }
+  });
 
   async function runPreview(intentText: string) {
     setStage('previewing');
@@ -190,9 +188,24 @@ export default function Home() {
       const res = await fetch('/api/pay-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent, senderAddress: walletAddress }),
+        body: JSON.stringify({
+          intent,
+          parsed: preview,
+          senderAddress: walletAddress,
+          manualAddress: manualAddress || undefined,
+        }),
         signal: abortCtrl.signal,
       });
+
+      // Handle non-SSE errors (e.g., 429 rate limit) before entering the stream reader
+      if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(data.error ?? `Server error (${res.status}) — please try again.`);
+        setStage('idle');
+        setLoading(false);
+        clearTimeout(watchdog);
+        return;
+      }
 
       if (!res.body) throw new Error('No response body');
 
@@ -323,14 +336,14 @@ export default function Home() {
         </div>
 
         <h1 style={{
-          fontSize: 'clamp(48px, 7.5vw, 80px)', fontWeight: 700,
-          letterSpacing: 'clamp(-2px, -0.04em, -3.5px)', lineHeight: 1.04,
+          fontSize: 'clamp(36px, 7.5vw, 80px)', fontWeight: 700,
+          letterSpacing: 'clamp(-1px, -0.04em, -3.5px)', lineHeight: 1.04,
           marginBottom: 22, color: '#fafafa',
         }}>
           Intent-Based Settlement.
         </h1>
 
-        <p style={{ fontSize: 18, color: '#71717a', maxWidth: 520, margin: '0 auto 64px', lineHeight: 1.6, letterSpacing: '-0.1px' }}>
+        <p style={{ fontSize: 'clamp(15px, 3vw, 18px)', color: '#71717a', maxWidth: 520, margin: '0 auto 64px', lineHeight: 1.6, letterSpacing: '-0.1px' }}>
           Type in plain language. Powered by Google Gemini, routed via LI.FI, and settled instantly on Hedera.
         </p>
       </section>
@@ -449,21 +462,38 @@ export default function Home() {
 
           {/* CTA bar */}
           <div style={{ padding: '14px 22px', display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid #18181b' }}>
-            {stage !== 'done' ? (
+            {stage === 'idle' && (
               <>
                 <button
-                  onClick={stage === 'idle' ? handlePreview : undefined}
-                  disabled={!intent.trim() || stage !== 'idle'}
+                  onClick={handlePreview}
+                  disabled={!intent.trim()}
                   className="btn-primary"
                   style={{ padding: '10px 22px', fontSize: 14, borderRadius: 8 }}
                 >
-                  {stage === 'previewing' ? <><Spinner /> Parsing…</>
-                    : stage === 'executing' ? <><Spinner /> Executing…</>
-                    : 'Preview Intent →'}
+                  Preview Intent →
                 </button>
                 <span style={{ fontSize: 11, color: '#3f3f46' }}>⌘ Return</span>
               </>
-            ) : (
+            )}
+            {stage === 'previewing' && (
+              <button disabled className="btn-primary" style={{ padding: '10px 22px', fontSize: 14, borderRadius: 8 }}>
+                <Spinner /> Parsing…
+              </button>
+            )}
+            {stage === 'confirming' && (
+              <button
+                onClick={() => setStage('idle')}
+                style={{ background: 'none', border: 'none', color: '#52525b', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: 0, letterSpacing: '-0.1px' }}
+              >
+                ← Edit intent
+              </button>
+            )}
+            {stage === 'executing' && (
+              <button disabled className="btn-primary" style={{ padding: '10px 22px', fontSize: 14, borderRadius: 8 }}>
+                <Spinner /> Executing…
+              </button>
+            )}
+            {stage === 'done' && (
               <button
                 onClick={reset}
                 style={{ background: 'none', border: 'none', color: '#52525b', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.1px', transition: 'color 0.15s', padding: 0 }}
@@ -767,7 +797,7 @@ export default function Home() {
         {history.length > 0 && stage === 'idle' && (
           <div style={{ marginTop: 40 }} className="animate-fade-in">
             <p style={{ fontSize: 10, color: '#3f3f46', fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 10 }}>
-              Recent Automated Payments
+              Recent
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {history.map((entry, i) => (

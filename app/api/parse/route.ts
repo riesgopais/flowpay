@@ -1,8 +1,18 @@
 import { NextResponse } from 'next/server';
 import { parsePaymentIntent } from '@/lib/parser';
 import { resolveRecipientName, isKnownName } from '@/lib/resolver';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
+  // Rate limit: 30 parse previews per minute per IP
+  const { allowed, retryAfter } = checkRateLimit(getClientIp(request), 30);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: `Too many requests — please wait ${retryAfter}s before trying again.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+    );
+  }
+
   try {
     const { intent } = await request.json();
     if (!intent || typeof intent !== 'string') {

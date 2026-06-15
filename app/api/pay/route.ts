@@ -3,8 +3,18 @@ import { parsePaymentIntent } from '@/lib/parser';
 import { recordPaymentOnChain, executeHbarPayment } from '@/lib/hedera';
 import { buildCrossChainPaymentFlow } from '@/lib/lifi';
 import { resolveRecipientName } from '@/lib/resolver';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
+  // Rate limit: 10 payment executions per minute per IP
+  const { allowed, retryAfter } = checkRateLimit(getClientIp(request), 10);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: `Too many requests — please wait ${retryAfter}s before retrying.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+    );
+  }
+
   try {
     const { intent, senderAddress } = await request.json();
 

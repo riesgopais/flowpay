@@ -287,6 +287,19 @@ body {
   }
 }
 
+@media (max-width: 768px) {
+  /* Docs layout: sidebar hidden via Tailwind hidden/md:block;
+     this collapses any remaining gap and lets main fill the width */
+  .docs-layout {
+    gap: 0 !important;
+  }
+
+  /* 2-col grids in docs stack to single column */
+  .docs-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ── BRAND SWATCH ── */
 
 .brand-swatch {

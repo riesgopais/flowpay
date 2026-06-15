@@ -1,15 +1,57 @@
 import { parsePaymentIntent } from '@/lib/parser';
+import type { PaymentIntent } from '@/lib/keyword-parser';
 import { recordPaymentOnChain, executeHbarPayment } from '@/lib/hedera';
 import { buildCrossChainPaymentFlow } from '@/lib/lifi';
 import { resolveRecipientName } from '@/lib/resolver';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+
+// Shape of the pre-parsed object sent from the frontend's /api/parse step
+interface ClientParsed {
+  amount: number;
+  fromToken: string;
+  toToken: string;
+  recipientAddress: string;
+  hederaRecipient: string | null;
+  senderName: string | null;
+  recipientName: string | null;
+  memo: string;
+  humanSummary: string;
+  error?: string | null;
+  _parsedBy?: 'keyword' | 'gemini' | 'fallback';
+}
+
+function isValidClientParsed(p: unknown): p is ClientParsed {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return (
+    typeof o.humanSummary === 'string' && o.humanSummary.length > 0 &&
+    typeof o.amount === 'number' && o.amount > 0 &&
+    typeof o.fromToken === 'string' && typeof o.toToken === 'string' &&
+    !o.error
+  );
+}
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 export async function POST(request: Request) {
+  // Rate limit: 10 payment executions per minute per IP
+  const { allowed, retryAfter } = checkRateLimit(getClientIp(request), 10);
+  if (!allowed) {
+    return new Response(
+      JSON.stringify({ error: `Too many requests — please wait ${retryAfter}s before retrying.` }),
+      { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) } },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
-  const { intent, senderAddress } = body as { intent?: string; senderAddress?: string };
+  const { intent, senderAddress, parsed: clientParsed, manualAddress } = body as {
+    intent?: string;
+    senderAddress?: string;
+    parsed?: unknown;
+    manualAddress?: string;
+  };
 
   if (!intent || typeof intent !== 'string') {
     const stream = new ReadableStream({
@@ -23,38 +65,64 @@ export async function POST(request: Request) {
       const emit = (data: object) => controller.enqueue(sse(data));
 
       try {
-        // ── Step 0: Gemini parse ──────────────────────────────────────────
+        // ── Step 0: Intent validation / parse ─────────────────────────────
         emit({ type: 'step', index: 0 });
-        const parsed = await parsePaymentIntent(intent);
 
-        if (parsed.error) {
-          emit({ type: 'error', error: parsed.error, status: 422 });
-          return;
-        }
-        if (!parsed.amount || isNaN(parsed.amount) || parsed.amount <= 0) {
-          emit({ type: 'error', error: 'Invalid amount — please specify a number greater than 0.', status: 422 });
-          return;
-        }
+        let parsed: PaymentIntent;
 
-        // Name resolution
-        if (parsed.recipientName) {
-          const resolved = await resolveRecipientName(parsed.recipientName);
-          if (resolved) {
-            parsed.recipientAddress = resolved.evm;
-            parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;
-          } else {
-            const hasExplicitEVM    = /0x[a-fA-F0-9]{40}/.test(intent);
-            const hasExplicitHedera = /\b0\.\d+\.\d+\b/.test(intent);
-            if (!hasExplicitEVM && !hasExplicitHedera) {
-              emit({
-                type: 'error',
-                error: `"${parsed.recipientName}" is not in the FlowPay registry. ` +
-                       `Please include a wallet address (0x…) or Hedera account (0.0.X).`,
-                status: 422,
-              });
-              return;
+        if (isValidClientParsed(clientParsed)) {
+          // Reuse the already-parsed result from the /api/parse preview step.
+          // This skips the Gemini API call entirely for the execute phase.
+          parsed = {
+            amount:           clientParsed.amount,
+            fromToken:        clientParsed.fromToken,
+            toToken:          clientParsed.toToken,
+            recipientAddress: clientParsed.recipientAddress,
+            hederaRecipient:  clientParsed.hederaRecipient ?? null,
+            senderName:       clientParsed.senderName ?? null,
+            recipientName:    clientParsed.recipientName ?? null,
+            memo:             clientParsed.memo,
+            humanSummary:     clientParsed.humanSummary,
+            error:            null,
+            _parsedBy:        clientParsed._parsedBy,
+          };
+        } else {
+          // Fallback: full re-parse when clientParsed is absent or invalid
+          parsed = await parsePaymentIntent(intent);
+          if (parsed.error) {
+            emit({ type: 'error', error: parsed.error, status: 422 });
+            return;
+          }
+          if (!parsed.amount || isNaN(parsed.amount) || parsed.amount <= 0) {
+            emit({ type: 'error', error: 'Invalid amount — please specify a number greater than 0.', status: 422 });
+            return;
+          }
+          // Name resolution (only needed in fallback — already done in preview step)
+          if (parsed.recipientName) {
+            const resolved = await resolveRecipientName(parsed.recipientName);
+            if (resolved) {
+              parsed.recipientAddress = resolved.evm;
+              parsed.hederaRecipient  = resolved.hedera ?? parsed.hederaRecipient;
+            } else {
+              const hasExplicitEVM    = /0x[a-fA-F0-9]{40}/.test(intent);
+              const hasExplicitHedera = /\b0\.\d+\.\d+\b/.test(intent);
+              if (!hasExplicitEVM && !hasExplicitHedera) {
+                emit({
+                  type: 'error',
+                  error: `"${parsed.recipientName}" is not in the FlowPay registry. ` +
+                         `Please include a wallet address (0x…) or Hedera account (0.0.X).`,
+                  status: 422,
+                });
+                return;
+              }
             }
           }
+        }
+
+        // If the user manually entered a native Hedera account (0.0.X) and the
+        // parsed object has no Hedera recipient yet, apply it now.
+        if (!parsed.hederaRecipient && manualAddress && /^\d+\.\d+\.\d+$/.test(manualAddress.trim())) {
+          parsed.hederaRecipient = manualAddress.trim();
         }
 
         const hcsPayload = {
@@ -109,7 +177,7 @@ export async function POST(request: Request) {
           return;
         }
 
-        // ── Step 3: HCS audit record (only on success) ───────────────────
+        // ── Step 3: HCS audit record (only on SUCCESS) ────────────────────
         emit({ type: 'step', index: 3 });
         const hcs = await recordPaymentOnChain(hcsPayload, 'SUCCESS');
 

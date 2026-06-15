@@ -23,10 +23,18 @@ function resolveToken(symbol: string): string {
   return TOKEN_ADDRESSES[upper === 'ETH' ? 'WETH' : upper] ?? TOKEN_ADDRESSES.WETH;
 }
 
+const DEMO_CAPS: Record<string, number> = {
+  WBTC: 0.01,
+  ETH: 2, WETH: 2,
+  USDC: 2000, USDT: 2000, DAI: 2000,
+  MATIC: 5000,
+};
+
 function toWei(amount: number, token: string): string {
-  const decimals = TOKEN_DECIMALS[token.toUpperCase()] ?? 18;
-  // Cap at sane demo amounts to avoid overflow
-  const capped = Math.min(amount, token.toUpperCase() === 'WBTC' ? 0.01 : 1);
+  const sym      = token.toUpperCase();
+  const decimals = TOKEN_DECIMALS[sym] ?? 18;
+  const cap      = DEMO_CAPS[sym] ?? 1;
+  const capped   = Math.min(amount, cap);
   return BigInt(Math.round(capped * 10 ** decimals)).toString();
 }
 
@@ -59,69 +67,66 @@ export async function buildCrossChainPaymentFlow(
   const isSameToken = fromAddr === toAddr;
 
   if (!apiKey) {
-    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false, fromToken, toToken };
+    // No API key — return a simulated route so demo still runs end-to-end
+    const steps = isSameToken
+      ? [`Transfer ${amount} ${toToken.toUpperCase()} (simulated — no LIFI_API_KEY)`]
+      : [`Swap ${fromToken.toUpperCase()} → ${toToken.toUpperCase()} (simulated — no LIFI_API_KEY)`];
+    return { flowBuilt: true, flowName: 'flowpay-remittance', steps, compiled: false, fromToken, toToken };
   }
 
-  try {
-    const sdk = createComposeSdk({
-      baseUrl: 'https://ethglobal-composer.li.quest',
-      apiKey,
+  const sdk = createComposeSdk({
+    baseUrl: 'https://ethglobal-composer.li.quest',
+    apiKey,
+  });
+
+  const builder = sdk.flow(1, {
+    name: 'flowpay-remittance',
+    inputs: { amountIn: resources.erc20(fromAddr as `0x${string}`, 1) },
+  });
+
+  const steps: string[] = [];
+
+  if (!isSameToken) {
+    builder.lifi.swap('swap', {
+      bind: { amountIn: builder.inputs.amountIn },
+      config: { resourceOut: resources.erc20(toAddr as `0x${string}`, 1), slippage: 0.03 },
     });
+    steps.push(`Swap ${fromToken.toUpperCase()} → ${toToken.toUpperCase()} via LI.FI aggregator (Ethereum Mainnet)`);
+  } else {
+    steps.push(`Transfer ${amount} ${toToken.toUpperCase()} (Ethereum Mainnet)`);
+  }
 
-    const builder = sdk.flow(1, {
-      name: 'flowpay-remittance',
-      inputs: { amountIn: resources.erc20(fromAddr as `0x${string}`, 1) },
-    });
+  const signer = (senderAddress || DEMO_SIGNER) as `0x${string}`;
+  const weiAmount = toWei(amount, fromToken);
 
-    const steps: string[] = [];
-
-    if (!isSameToken) {
-      builder.lifi.swap('swap', {
-        bind: { amountIn: builder.inputs.amountIn },
-        config: { resourceOut: resources.erc20(toAddr as `0x${string}`, 1), slippage: 0.03 },
-      });
-      steps.push(`Swap ${fromToken.toUpperCase()} → ${toToken.toUpperCase()} via LI.FI aggregator (Ethereum Mainnet)`);
-    } else {
-      steps.push(`Transfer ${amount} ${toToken.toUpperCase()} (Ethereum Mainnet)`);
-    }
-
-    try {
-      const signer = (senderAddress || DEMO_SIGNER) as `0x${string}`;
-      const weiAmount = toWei(amount, fromToken);
-      const result = await builder.compile({
-        signer,
-        inputs: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          amountIn: materialisers.directDeposit({ amount: weiAmount as any }),
-        },
-        sweepTo: builder.context.sender,
-        simulationPolicy: 'allow-revert',
-      });
-
-      const compiled = result.status === 'success' || result.status === 'partial';
+  // Let compile errors propagate so pay-stream can detect STAGING_LIQUIDITY_DRY
+  const result = await builder.compile({
+    signer,
+    inputs: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const txReq = compiled ? (result as any).transactionRequest as Record<string, string> | undefined : undefined;
+      amountIn: materialisers.directDeposit({ amount: weiAmount as any }),
+    },
+    sweepTo: builder.context.sender,
+    simulationPolicy: 'allow-revert',
+  });
 
-      return {
-        flowBuilt: true,
-        flowName: 'flowpay-remittance',
-        steps,
-        compiled,
-        fromToken,
-        toToken,
-        calldataPreview: txReq?.data ? `${txReq.data.slice(0, 18)}...` : undefined,
-        transactionRequest: txReq?.to && txReq?.data ? {
-          to: txReq.to,
-          data: txReq.data,
-          value: txReq.value ?? '0x0',
-          chainId: 1,
-        } : undefined,
-      };
-    } catch {
-      return { flowBuilt: true, flowName: 'flowpay-remittance', steps, compiled: false, fromToken, toToken };
-    }
-  } catch (err) {
-    console.error('[LI.FI] Flow build error:', err);
-    return { flowBuilt: false, flowName: 'cross-chain-payment', steps: [], compiled: false, fromToken, toToken };
-  }
+  const compiled = result.status === 'success' || result.status === 'partial';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const txReq = compiled ? (result as any).transactionRequest as Record<string, string> | undefined : undefined;
+
+  return {
+    flowBuilt: true,
+    flowName: 'flowpay-remittance',
+    steps,
+    compiled,
+    fromToken,
+    toToken,
+    calldataPreview: txReq?.data ? `${txReq.data.slice(0, 18)}...` : undefined,
+    transactionRequest: txReq?.to && txReq?.data ? {
+      to: txReq.to,
+      data: txReq.data,
+      value: txReq.value ?? '0x0',
+      chainId: 1,
+    } : undefined,
+  };
 }
